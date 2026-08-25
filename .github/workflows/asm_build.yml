@@ -1,4 +1,4 @@
-name: Build Android (Multi‑Version)
+name: Build Optimized Android APK
 
 on:
   push:
@@ -19,48 +19,46 @@ on:
 
 jobs:
   build:
-    name: Build with JDK ${{ matrix.java }} / Kotlin ${{ matrix.kotlin }}
+    name: Build Release APK
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false          # Continue other versions even if one fails
-      matrix:
-        java: [ '17', '21' ]
-        kotlin: [ '1.8.22', '1.9.24', '2.0.21' ]
 
     steps:
+      # Cancel previous runs on the same branch to save resources
       - name: Cancel previous runs
         uses: styfle/cancel-workflow-action@0.12.1
         with:
           access_token: ${{ github.token }}
 
-      - name: Checkout
+      # Checkout with submodules and full history
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
           submodules: 'recursive'
           fetch-depth: 0
 
-      - name: Set up JDK ${{ matrix.java }}
+      # Set up JDK 17 as the baseline to run Gradle.
+      # Gradle toolchains (if configured in your project) will automatically
+      # download any other required JDK (e.g., 11, 21) for compilation.
+      - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
-          java-version: ${{ matrix.java }}
-          distribution: 'temurin'   # or 'adopt'
+          java-version: '17'
+          distribution: 'temurin'
 
-      - name: Change Gradle wrapper permissions
+      # Setup Gradle with built-in caching & wrapper validation
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: wrapper   # uses your project's gradle wrapper
+          cache-read-only: false
+          # Enables configuration cache for faster builds
+          add-job-summary-as-pr-comment: on-failure
+
+      # Make gradlew executable
+      - name: Grant execute permission for gradlew
         run: chmod +x ./gradlew
 
-      # Cache Gradle dependencies and wrapper (key includes Java & Kotlin versions)
-      - name: Restore cache
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: ${{ runner.os }}-gradle-java${{ matrix.java }}-kotlin${{ matrix.kotlin }}-${{ hashFiles('**/*.gradle*') }}
-          restore-keys: |
-            ${{ runner.os }}-gradle-java${{ matrix.java }}-
-            ${{ runner.os }}-gradle-
-
-      # Create local.properties with signing info (adjust paths/passwords as needed)
+      # Create local.properties for signing (adjust values as needed)
       - name: Create local.properties
         run: |
           echo "signing.storeFile=signing/signing-key.jks" >> local.properties
@@ -68,14 +66,11 @@ jobs:
           echo "signing.keyAlias=AndroidCS" >> local.properties
           echo "signing.keyPassword=123456" >> local.properties
 
-      # OPTIONAL: Copy a CI-specific gradle.properties with optimization flags
-      # If you have a file .github/ci-gradle.properties, it will be used.
-      - name: Use CI-specific Gradle properties
+      # If the project doesn't already have a gradle.properties with optimisations,
+      # create one automatically. You can also commit this file to your repo.
+      - name: Ensure optimized gradle.properties
         run: |
-          if [ -f .github/ci-gradle.properties ]; then
-            cp .github/ci-gradle.properties gradle.properties
-          else
-            # If not present, create one with recommended optimizations
+          if [ ! -f gradle.properties ]; then
             cat > gradle.properties <<EOF
             org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g -XX:+UseParallelGC
             org.gradle.parallel=true
@@ -84,52 +79,52 @@ jobs:
             android.enableR8.fullMode=true
             android.useAndroidX=true
             EOF
+          else
+            # If file exists, ensure R8 full mode is enabled (add if missing)
+            if ! grep -q "android.enableR8.fullMode" gradle.properties; then
+              echo "android.enableR8.fullMode=true" >> gradle.properties
+            fi
           fi
 
-      # Debug: show environment & version info
-      - name: Show build environment
+      # Optional: show project versions for debugging
+      - name: Show project info
         run: |
-          echo "=== Java version ==="
+          echo "=== Java version (baseline) ==="
           java -version
-          echo "=== Kotlin version to use ==="
-          echo "${{ matrix.kotlin }}"
-          echo "=== Gradle properties ==="
-          cat gradle.properties
-          echo "=== local.properties (redacted) ==="
-          sed 's/password=.*/password=***/' local.properties
+          echo "=== Gradle version ==="
+          ./gradlew --version
+          echo "=== Kotlin version (from project) ==="
+          ./gradlew -q printKotlinVersion || true
 
-      # Assemble release APKs with the selected Kotlin version
-      - name: Assemble all APKs
-        run: |
-          ./gradlew :core:app:assembleRelease \
-            -Pkotlin_version=${{ matrix.kotlin }} \
-            --no-daemon --stacktrace
+      # Build the release APK (adjust module path if needed)
+      - name: Assemble release APK
+        run: ./gradlew :core:app:assembleRelease --no-daemon --stacktrace
 
-      # Upload artifacts – only keep one set per matrix combination
-      - name: Upload arm64-v8a Release APK
+      # Upload all ABI splits as separate artefacts
+      - name: Upload arm64-v8a APK
         uses: actions/upload-artifact@v4
         with:
-          name: apk-arm64-v8a-release-jdk${{ matrix.java }}-kotlin${{ matrix.kotlin }}
+          name: apk-arm64-v8a-release
           path: core/app/build/outputs/apk/release/*arm64-v8a*.apk
         if: always()
 
-      - name: Upload armeabi-v7a Release APK
+      - name: Upload armeabi-v7a APK
         uses: actions/upload-artifact@v4
         with:
-          name: apk-armeabi-v7a-release-jdk${{ matrix.java }}-kotlin${{ matrix.kotlin }}
+          name: apk-armeabi-v7a-release
           path: core/app/build/outputs/apk/release/*armeabi-v7a*.apk
         if: always()
 
-      - name: Upload x86_64 Release APK
+      - name: Upload x86_64 APK
         uses: actions/upload-artifact@v4
         with:
-          name: apk-x86_64-release-jdk${{ matrix.java }}-kotlin${{ matrix.kotlin }}
+          name: apk-x86_64-release
           path: core/app/build/outputs/apk/release/*x86_64*.apk
         if: always()
 
-      - name: Upload universal Release APK
+      - name: Upload universal APK
         uses: actions/upload-artifact@v4
         with:
-          name: apk-universal-release-jdk${{ matrix.java }}-kotlin${{ matrix.kotlin }}
+          name: apk-universal-release
           path: core/app/build/outputs/apk/release/*universal*.apk
         if: always()
