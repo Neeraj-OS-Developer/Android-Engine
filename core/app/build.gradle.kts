@@ -102,9 +102,11 @@ android {
     }
 
     release {
-      isShrinkResources = false
-      signingConfig = signingConfigs.getByName("custom")
-    }
+         minifyEnabled true
+         isShrinkResources = true
+         proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+         signingConfig = signingConfigs.getByName("custom")
+     }
   }
   
   lint {
