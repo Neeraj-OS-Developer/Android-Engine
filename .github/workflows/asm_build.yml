@@ -1,12 +1,8 @@
-name: Build Android Code Studio
+name: Build Android (Multi‑Version)
 
 on:
   push:
-    branches: 
-      - "dev"
-      - "main" 
-      - "indexing"
-      - "release/**"
+    branches: [ "dev", "main", "indexing", "release/**" ]
     paths-ignore:
       - '**.md'
       - '**.json'
@@ -22,81 +18,125 @@ on:
   workflow_dispatch: { }
 
 jobs:
-  build_release_apk:
-    name: Build Debug APK
+  build:
+    name: Build with JDK ${{ matrix.java }} / Kotlin ${{ matrix.kotlin }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false          # Continue other versions even if one fails
+      matrix:
+        # JDK versions that are compatible with your AGP (8.x requires 17+)
+        java: [ '17', '21' ]
+        # Kotlin versions to test (adjust as needed)
+        # Older versions may not work with the latest AGP – test and remove if incompatible
+        kotlin: [ '1.8.22', '1.9.24', '2.0.21' ]
+        exclude:
+          # Optional: exclude combos known to be problematic
+          # - java: '21'
+          #   kotlin: '1.8.22'
+
     steps:
       - name: Cancel previous runs
         uses: styfle/cancel-workflow-action@0.12.1
         with:
           access_token: ${{ github.token }}
+
       - name: Checkout
         uses: actions/checkout@v4
         with:
           submodules: 'recursive'
           fetch-depth: 0
-      - name: Set up JDK 17
+
+      - name: Set up JDK ${{ matrix.java }}
         uses: actions/setup-java@v4
         with:
-          java-version: '17'
-          distribution: 'adopt'
+          java-version: ${{ matrix.java }}
+          distribution: 'temurin'   # or 'adopt'
+
       - name: Change Gradle wrapper permissions
         run: chmod +x ./gradlew
+
+      # Cache Gradle dependencies and wrapper (key includes Java & Kotlin versions)
       - name: Restore cache
         uses: actions/cache@v4
         with:
           path: |
             ~/.gradle/caches
             ~/.gradle/wrapper
-          key: ${{ runner.os }}-gradle-v2-${{ hashFiles('**/*.gradle*') }}
+          key: ${{ runner.os }}-gradle-java${{ matrix.java }}-kotlin${{ matrix.kotlin }}-${{ hashFiles('**/*.gradle*') }}
           restore-keys: |
+            ${{ runner.os }}-gradle-java${{ matrix.java }}-
             ${{ runner.os }}-gradle-
+
+      # Create local.properties with signing info (adjust paths/passwords as needed)
       - name: Create local.properties
         run: |
           echo "signing.storeFile=signing/signing-key.jks" >> local.properties
           echo "signing.storePassword=123456" >> local.properties  
           echo "signing.keyAlias=AndroidCS" >> local.properties
           echo "signing.keyPassword=123456" >> local.properties
-      - name: Debug signing setup
+
+      # OPTIONAL: Copy a CI-specific gradle.properties with optimization flags
+      # If you have a file .github/ci-gradle.properties, it will be used.
+      - name: Use CI-specific Gradle properties
         run: |
-          echo "=== Repository structure ==="
-          find . -name "*.jks" -o -name "local.properties" | head -10
-          echo ""
-          echo "=== local.properties content ==="
-          cat local.properties || echo "local.properties not found"
-          echo ""
-          echo "=== SigningDirectory ==="
-          ls -la core/app/signing/ || echo "core/app/signing directory not found"
+          if [ -f .github/ci-gradle.properties ]; then
+            cp .github/ci-gradle.properties gradle.properties
+          else
+            # If not present, create one with recommended optimizations
+            cat > gradle.properties <<EOF
+            org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g -XX:+UseParallelGC
+            org.gradle.parallel=true
+            org.gradle.caching=true
+            org.gradle.configuration-cache=true
+            android.enableR8.fullMode=true
+            android.useAndroidX=true
+            EOF
+          fi
+
+      # Debug: show environment & version info
+      - name: Show build environment
+        run: |
+          echo "=== Java version ==="
+          java -version
+          echo "=== Kotlin version to use ==="
+          echo "${{ matrix.kotlin }}"
+          echo "=== Gradle properties ==="
+          cat gradle.properties
+          echo "=== local.properties (redacted) ==="
+          sed 's/password=.*/password=***/' local.properties
+
+      # Assemble release APKs with the selected Kotlin version
       - name: Assemble all APKs
-             
         run: |
-             ./gradlew :core:app:assembleRelease
-                 
-       # ./gradlew clean assemble --rerun-tasks
-       # run: 
-      - name: List APK files (Release)
-        run: ls -la core/app/build/outputs/apk/release/
+          ./gradlew :core:app:assembleRelease \
+            -Pkotlin_version=${{ matrix.kotlin }} \
+            --no-daemon --stacktrace
+
+      # Upload artifacts – only keep one set per matrix combination
       - name: Upload arm64-v8a Release APK
         uses: actions/upload-artifact@v4
         with:
-          name: apk-arm64-v8a-release
+          name: apk-arm64-v8a-release-jdk${{ matrix.java }}-kotlin${{ matrix.kotlin }}
           path: core/app/build/outputs/apk/release/*arm64-v8a*.apk
         if: always()
+
       - name: Upload armeabi-v7a Release APK
         uses: actions/upload-artifact@v4
         with:
-          name: apk-armeabi-v7a-release
+          name: apk-armeabi-v7a-release-jdk${{ matrix.java }}-kotlin${{ matrix.kotlin }}
           path: core/app/build/outputs/apk/release/*armeabi-v7a*.apk
         if: always()
+
       - name: Upload x86_64 Release APK
         uses: actions/upload-artifact@v4
         with:
-          name: apk-x86_64-release
+          name: apk-x86_64-release-jdk${{ matrix.java }}-kotlin${{ matrix.kotlin }}
           path: core/app/build/outputs/apk/release/*x86_64*.apk
         if: always()
+
       - name: Upload universal Release APK
         uses: actions/upload-artifact@v4
         with:
-          name: apk-universal-release
+          name: apk-universal-release-jdk${{ matrix.java }}-kotlin${{ matrix.kotlin }}
           path: core/app/build/outputs/apk/release/*universal*.apk
         if: always()
