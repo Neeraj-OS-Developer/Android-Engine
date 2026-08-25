@@ -102,7 +102,7 @@ android {
     }
 
     release {
-         isShrinkResources = true
+         isShrinkResources = false
          signingConfig = signingConfigs.getByName("custom")
      }
   }
