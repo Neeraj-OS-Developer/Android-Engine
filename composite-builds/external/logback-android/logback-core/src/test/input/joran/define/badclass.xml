@@ -1,0 +1,3 @@
+<top>
+	<define name="foo" class="a.b.c.Foo" />
+</top>

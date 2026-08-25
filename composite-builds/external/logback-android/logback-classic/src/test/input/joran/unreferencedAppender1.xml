@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE configuration>
+
+<configuration debug="false">
+
+  <appender name="A" class="ch.qos.logback.core.read.ListAppender"/>
+  <appender name="B" class="ch.qos.logback.core.read.ListAppender"/>
+
+
+  <root level="ERROR">
+    <appender-ref ref="A"/>
+  </root>
+
+</configuration>

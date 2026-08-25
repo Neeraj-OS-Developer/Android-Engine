@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:id="@+id/nav_toggle_rail"
+        android:icon="@drawable/ic_close"
+        android:title="Hide" />
+    <item
+        android:id="@+id/nav_terminal"
+        android:icon="@drawable/ic_terminal"
+        android:title="Terminal" />
+    <item
+        android:id="@+id/nav_new_session"
+        android:icon="@drawable/ic_add"
+        android:title="New Session" />
+    <item
+        android:id="@+id/nav_settings"
+        android:icon="@drawable/ic_settings"
+        android:title="Settings" />
+</menu>

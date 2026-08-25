@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.coordinatorlayout.widget.CoordinatorLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_height="match_parent"
+    android:layout_width="match_parent">
+
+    <com.google.android.material.card.MaterialCardView
+        android:layout_height="match_parent"
+        android:layout_width="match_parent"
+        android:layout_margin="16dp"
+        app:cardCornerRadius="28dp"
+        app:cardElevation="3dp"
+        app:strokeWidth="0dp"
+        app:cardBackgroundColor="?attr/colorSurface"
+        android:id="@+id/card_container">
+
+        <LinearLayout
+            android:layout_height="match_parent"
+            android:layout_width="match_parent"
+            android:orientation="vertical">
+
+            <com.google.android.material.appbar.MaterialToolbar
+                android:layout_height="?attr/actionBarSize"
+                android:layout_width="match_parent"
+                app:title="Select Destination"
+                style="@style/Widget.Material3.Toolbar.Surface"
+                android:id="@+id/toolbar_dialog">
+
+            </com.google.android.material.appbar.MaterialToolbar>
+
+            <TextView
+                android:layout_height="wrap_content"
+                android:layout_width="match_parent"
+                android:background="?attr/colorSurfaceContainer"
+                android:ellipsize="start"
+                android:padding="12dp"
+                android:singleLine="true"
+                tools:text="/storage/emulated/0/"
+                android:id="@+id/tv_current_path_dialog" />
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:layout_height="0dp"
+                android:layout_width="match_parent"
+                tools:listitem="@layout/item_file"
+                app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager"
+                android:layout_weight="1"
+                android:id="@+id/rv_files_dialog" />
+
+        </LinearLayout>
+
+    </com.google.android.material.card.MaterialCardView>
+
+    <com.google.android.material.floatingactionbutton.FloatingActionButton
+        android:layout_height="wrap_content"
+        android:layout_width="wrap_content"
+        android:contentDescription="Paste Here"
+        android:layout_margin="32dp"
+        app:srcCompat="@drawable/ic_paste"
+        android:id="@+id/fab_paste"
+        app:elevation="8dp"
+        app:layout_anchor="@id/card_container"
+        app:layout_anchorGravity="bottom|end"
+        android:layout_gravity="bottom|end" />
+
+    <com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:id="@+id/gotoMyProj"
+        android:text="Goto My project"
+        android:layout_margin="32dp"
+        android:contentDescription="Paste Here"
+        app:icon="@drawable/ic_arrow_back"
+        app:layout_anchorGravity="bottom|start"
+        android:layout_gravity="bottom|start" />
+
+</androidx.coordinatorlayout.widget.CoordinatorLayout>

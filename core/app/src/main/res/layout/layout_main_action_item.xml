@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<com.google.android.material.card.MaterialCardView
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_margin="4dp"
+    app:cardElevation="0dp"
+    app:cardCornerRadius="8dp"
+    app:strokeWidth="0dp"
+    app:cardBackgroundColor="?attr/colorSurfaceContainerLow">
+
+    <com.google.android.material.button.MaterialButton
+        style="@style/Widget.Material3.Button.TextButton.Icon"
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:elevation="0dp"
+        android:ellipsize="end"
+        android:id="@+id/actionButton"
+        android:singleLine="true"
+        android:textAlignment="textStart"
+        android:textColor="?attr/colorOnBackground"
+        android:textStyle="bold"
+        app:cornerRadius="16dp"
+        app:iconPadding="8dp"
+        android:stateListAnimator="@null"
+        app:rippleColor="@android:color/transparent"
+        app:iconTint="?attr/colorOnBackground"
+        tools:icon="@drawable/ic_add"
+        tools:text="@string/msg_create_new_project" />
+        
+</com.google.android.material.card.MaterialCardView>
+

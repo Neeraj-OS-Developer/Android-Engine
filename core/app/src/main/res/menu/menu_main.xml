@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <item
+        android:id="@+id/action_search"
+        android:title="Search"
+        android:icon="@drawable/ic_search"
+        app:showAsAction="always|collapseActionView"
+        app:actionViewClass="androidx.appcompat.widget.SearchView" />
+
+    <item
+        android:id="@+id/action_filter"
+        android:title="Filter"
+        app:showAsAction="never">
+        <menu>
+            <item
+                android:id="@+id/filter_all"
+                android:title="Show All"
+                android:checkable="true"
+                android:checked="true" />
+            <item
+                android:id="@+id/filter_folders_only"
+                android:title="Folders Only"
+                android:checkable="true" />
+            <item
+                android:id="@+id/filter_files_only"
+                android:title="Files Only"
+                android:checkable="true" />
+        </menu>
+    </item>
+
+    <item
+        android:id="@+id/action_filter_by_extension"
+        android:title="Filter by Extension"
+        app:showAsAction="never">
+        <menu>
+            <item
+                android:id="@+id/ext_all"
+                android:title="All Files"
+                android:checkable="true"
+                android:checked="true" />
+            <item
+                android:id="@+id/ext_xml"
+                android:title="XML Files (.xml)"
+                android:checkable="true" />
+            <item
+                android:id="@+id/ext_txt"
+                android:title="Text Files (.txt)"
+                android:checkable="true" />
+            <item
+                android:id="@+id/ext_pdf"
+                android:title="PDF Files (.pdf)"
+                android:checkable="true" />
+            <item
+                android:id="@+id/ext_image"
+                android:title="Images (.jpg, .png, .gif)"
+                android:checkable="true" />
+            <item
+                android:id="@+id/ext_video"
+                android:title="Videos (.mp4, .mkv, .avi)"
+                android:checkable="true" />
+            <item
+                android:id="@+id/ext_audio"
+                android:title="Audio (.mp3, .wav, .m4a)"
+                android:checkable="true" />
+            <item
+                android:id="@+id/ext_apk"
+                android:title="APK Files (.apk)"
+                android:checkable="true" />
+            <item
+                android:id="@+id/ext_zip"
+                android:title="Archives (.zip, .rar, .7z)"
+                android:checkable="true" />
+            <item
+                android:id="@+id/ext_custom"
+                android:title="Custom Extension..."
+                android:checkable="true" />
+        </menu>
+    </item>
+
+</menu>

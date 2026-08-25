@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+  xmlns:app="http://schemas.android.com/apk/res-auto"
+  android:id="@+id/settings_content"
+  android:layout_width="match_parent"
+  android:layout_height="match_parent"
+  android:visibility="gone">
+
+  <LinearLayout
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="16dp">
+
+    <com.google.android.material.card.MaterialCardView
+      android:layout_width="match_parent"
+      android:layout_height="wrap_content"
+      app:cardElevation="2dp"
+      app:cardCornerRadius="12dp">
+
+      <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <TextView
+          android:layout_width="match_parent"
+          android:layout_height="wrap_content"
+          android:text="Appearance"
+          android:textSize="18sp"
+          android:textStyle="bold"
+          android:layout_marginBottom="16dp" />
+
+        <TextView
+          android:layout_width="match_parent"
+          android:layout_height="wrap_content"
+          android:text="Text Size"
+          android:textSize="14sp"
+          android:layout_marginBottom="8dp" />
+
+        <LinearLayout
+          android:layout_width="match_parent"
+          android:layout_height="wrap_content"
+          android:orientation="horizontal"
+          android:gravity="center_vertical">
+
+          <TextView
+            android:id="@+id/text_size_value"
+            android:layout_width="40dp"
+            android:layout_height="wrap_content"
+            android:text="14"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:gravity="center" />
+
+          <com.google.android.material.slider.Slider
+            android:id="@+id/text_size_slider"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:valueFrom="8"
+            android:valueTo="50"
+            android:value="14"
+            android:stepSize="1" />
+
+        </LinearLayout>
+
+        <LinearLayout
+          android:layout_width="match_parent"
+          android:layout_height="wrap_content"
+          android:orientation="horizontal"
+          android:gravity="center_vertical"
+          android:layout_marginTop="16dp">
+            
+          <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Hide extra keys toolbar"
+            android:textSize="14sp" />
+
+          <com.google.android.material.materialswitch.MaterialSwitch
+            android:id="@+id/hide_extra_keys"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content" />
+
+        </LinearLayout>
+
+      </LinearLayout>
+
+    </com.google.android.material.card.MaterialCardView>
+
+  </LinearLayout>
+
+</ScrollView>

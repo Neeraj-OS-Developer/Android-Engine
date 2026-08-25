@@ -1,0 +1,5 @@
+<top>
+	<define class="ch.qos.logback.core.joran.action.AsLowerCasePropertyDefiner">
+		<value>Monster</value>
+	</define>
+</top>

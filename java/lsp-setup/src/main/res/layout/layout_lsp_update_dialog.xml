@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout
+     xmlns:android="http://schemas.android.com/apk/res/android"
+     xmlns:app="http://schemas.android.com/apk/res-auto"
+     xmlns:tools="http://schemas.android.com/tools"
+     android:layout_height="wrap_content"
+     android:layout_width="wrap_content"
+     android:gravity="center"
+     android:padding="24dp"
+     android:orientation="vertical"
+     android:id="@+id/coordinator">
+
+    <TextView
+         android:layout_height="wrap_content"
+         android:layout_width="wrap_content"
+         android:layout_marginBottom="2dp"
+         android:gravity="center"
+         android:textSize="24sp"
+         android:fontFamily="sans-serif-bold"
+         android:text="Dialog title"
+         android:id="@+id/title"
+         android:textStyle="bold" />
+    <TextView
+         android:layout_height="wrap_content"
+         android:layout_width="wrap_content"
+         android:layout_marginBottom="16dp"
+         android:gravity="center"
+         android:textSize="16sp"
+         android:alpha="0.8"
+         android:id="@+id/description"
+         android:fontFamily="sans-serif-medium"
+         android:text="Dialog description"
+         />
+
+    <com.google.android.material.progressindicator.LinearProgressIndicator
+         android:layout_height="wrap_content"
+         android:layout_width="match_parent"
+         android:layout_marginBottom="16dp"
+         android:id="@+id/progress_indicator"
+         android:visibility="gone"
+         app:indicatorColor="?attr/colorPrimary"
+         app:trackColor="?attr/colorSurfaceVariant"
+         app:trackThickness="4dp"
+         app:trackCornerRadius="2dp" />
+
+    <TextView
+         android:layout_height="wrap_content"
+         android:layout_width="match_parent"
+         android:layout_marginBottom="4dp"
+         android:background="@drawable/ripple_top"
+         android:gravity="center"
+         android:padding="16dp"
+         android:textSize="16sp"
+         android:clickable="true"
+         android:focusable="true"
+         android:fontFamily="sans-serif-medium"
+         android:textColor="?attr/colorOnPrimaryContainer"
+         android:id="@+id/button_primary"
+         android:text="Primary Action" />
+
+    <TextView
+         android:layout_height="wrap_content"
+         android:layout_width="match_parent"
+         android:layout_marginBottom="4dp"
+         android:background="@drawable/ripple_middle"
+         android:gravity="center"
+         android:padding="16dp"
+         android:textSize="16sp"
+         android:clickable="true"
+         android:focusable="true"
+         android:fontFamily="sans-serif-medium"
+         android:textColor="?attr/colorOnPrimaryContainer"
+         android:id="@+id/button_middle"
+         android:text="Middle Action" />
+
+    <TextView
+         android:layout_height="wrap_content"
+         android:layout_width="match_parent"
+         android:background="@drawable/ripple_bottom"
+         android:gravity="center"
+         android:padding="16dp"
+         android:clickable="true"
+         android:focusable="true"
+         android:textSize="14sp"
+         android:fontFamily="sans-serif-medium"
+         android:textColor="?attr/colorOnPrimaryContainer"
+         android:id="@+id/button_secondary"
+         android:text="Secondary Action" />
+
+</LinearLayout>

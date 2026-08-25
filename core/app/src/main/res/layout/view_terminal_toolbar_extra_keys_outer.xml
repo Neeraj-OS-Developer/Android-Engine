@@ -1,0 +1,234 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/extra_keys_layout"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:visibility="visible"
+    android:background="?attr/colorSurface"
+    android:elevation="4dp"
+    android:clickable="false"
+    android:focusable="false">
+
+    <!-- First Row of Extra Keys -->
+    <HorizontalScrollView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:scrollbars="none"
+        android:clickable="false"
+        android:focusable="false">
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:padding="4dp"
+            android:clickable="false"
+            android:focusable="false">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/key_esc"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="wrap_content"
+                android:layout_height="48dp"
+                android:text="ESC"
+                android:textSize="12sp"
+                android:minWidth="64dp"
+                android:layout_marginHorizontal="2dp"
+                android:clickable="true"
+                android:focusable="true" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/key_tab"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="wrap_content"
+                android:layout_height="48dp"
+                android:text="TAB"
+                android:textSize="12sp"
+                android:minWidth="64dp"
+                android:layout_marginHorizontal="2dp"
+                android:clickable="true"
+                android:focusable="true" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/key_ctrl"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="wrap_content"
+                android:layout_height="48dp"
+                android:text="CTRL"
+                android:textSize="12sp"
+                android:minWidth="64dp"
+                android:layout_marginHorizontal="2dp"
+                android:clickable="true"
+                android:focusable="true" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/key_alt"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="wrap_content"
+                android:layout_height="48dp"
+                android:text="ALT"
+                android:textSize="12sp"
+                android:minWidth="64dp"
+                android:layout_marginHorizontal="2dp"
+                android:clickable="true"
+                android:focusable="true" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/key_slash"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="wrap_content"
+                android:layout_height="48dp"
+                android:text="/"
+                android:textSize="14sp"
+                android:minWidth="54dp"
+                android:layout_marginHorizontal="2dp"
+                android:clickable="true"
+                android:focusable="true" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/key_minus"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="wrap_content"
+                android:layout_height="48dp"
+                android:text="-"
+                android:textSize="14sp"
+                android:minWidth="54dp"
+                android:layout_marginHorizontal="2dp"
+                android:clickable="true"
+                android:focusable="true" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/key_pipe"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="wrap_content"
+                android:layout_height="48dp"
+                android:text="|"
+                android:textSize="14sp"
+                android:minWidth="54dp"
+                android:layout_marginHorizontal="2dp"
+                android:clickable="true"
+                android:focusable="true" />
+
+        </LinearLayout>
+
+    </HorizontalScrollView>
+
+    <!-- Second Row of Extra Keys -->
+    <HorizontalScrollView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:scrollbars="none"
+        android:clickable="false"
+        android:focusable="false">
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:padding="4dp"
+            android:clickable="false"
+            android:focusable="false">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/key_up"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="wrap_content"
+                android:layout_height="48dp"
+                android:text="↑"
+                android:textSize="16sp"
+                android:minWidth="54dp"
+                android:layout_marginHorizontal="2dp"
+                android:clickable="true"
+                android:focusable="true" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/key_down"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="wrap_content"
+                android:layout_height="48dp"
+                android:text="↓"
+                android:textSize="16sp"
+                android:minWidth="54dp"
+                android:layout_marginHorizontal="2dp"
+                android:clickable="true"
+                android:focusable="true" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/key_left"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="wrap_content"
+                android:layout_height="48dp"
+                android:text="←"
+                android:textSize="16sp"
+                android:minWidth="54dp"
+                android:layout_marginHorizontal="2dp"
+                android:clickable="true"
+                android:focusable="true" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/key_right"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="wrap_content"
+                android:layout_height="48dp"
+                android:text="→"
+                android:textSize="16sp"
+                android:minWidth="54dp"
+                android:layout_marginHorizontal="2dp"
+                android:clickable="true"
+                android:focusable="true" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/key_home"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="wrap_content"
+                android:layout_height="48dp"
+                android:text="HOME"
+                android:textSize="12sp"
+                android:minWidth="64dp"
+                android:layout_marginHorizontal="2dp"
+                android:clickable="true"
+                android:focusable="true" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/key_end"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="wrap_content"
+                android:layout_height="48dp"
+                android:text="END"
+                android:textSize="12sp"
+                android:minWidth="64dp"
+                android:layout_marginHorizontal="2dp"
+                android:clickable="true"
+                android:focusable="true" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/key_pgup"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="wrap_content"
+                android:layout_height="48dp"
+                android:text="PGUP"
+                android:textSize="12sp"
+                android:minWidth="64dp"
+                android:layout_marginHorizontal="2dp"
+                android:clickable="true"
+                android:focusable="true" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/key_pgdn"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="wrap_content"
+                android:layout_height="48dp"
+                android:text="PGDN"
+                android:textSize="12sp"
+                android:minWidth="64dp"
+                android:layout_marginHorizontal="2dp"
+                android:clickable="true"
+                android:focusable="true" />
+
+        </LinearLayout>
+
+    </HorizontalScrollView>
+
+</LinearLayout>

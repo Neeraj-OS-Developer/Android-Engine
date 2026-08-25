@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+  <uses-permission android:name="android.permission.GET_PACKAGE_SIZE" />
+  <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+
+  <queries>
+    <package android:name="io.github.mohammedbaqernull.logger" />
+  </queries>
+
+  <application>
+    <provider
+      android:name=".LogWireInitializer"
+      android:authorities="${applicationId}.logwire.initializer"
+      android:exported="true" />
+  </application>
+
+</manifest>

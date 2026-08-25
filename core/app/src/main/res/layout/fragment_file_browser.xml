@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_height="match_parent"
+    android:layout_width="match_parent"
+    android:orientation="vertical">
+
+    <com.google.android.material.appbar.MaterialToolbar
+        android:layout_height="?attr/actionBarSize"
+        android:layout_width="match_parent"
+        style="@style/Widget.Material3.Toolbar.Surface"
+        android:id="@+id/toolbar">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/gotoMyProj"
+            android:layout_height="wrap_content"
+            android:layout_width="wrap_content"
+            app:icon="@drawable/ic_arrow_back"
+            app:cornerRadius="6dp"
+            android:layout_marginStart="8dp"
+            android:text="Goto my project" />
+
+    </com.google.android.material.appbar.MaterialToolbar>
+
+    <TextView
+        android:layout_height="wrap_content"
+        android:layout_width="match_parent"
+        android:background="?attr/colorSurfaceContainer"
+        android:padding="12dp"
+        android:ellipsize="start"
+        android:singleLine="true"
+        tools:text="/storage/emulated/0/"
+        android:id="@+id/tv_current_path" />
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:layout_height="0dp"
+        android:layout_width="match_parent"
+        tools:listitem="@layout/item_file"
+        app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager"
+        android:layout_weight="1"
+        android:id="@+id/rv_files" />
+
+</LinearLayout>

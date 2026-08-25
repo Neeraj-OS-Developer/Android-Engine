@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="utf-8"?><!--
+  ~  This file is part of AndroidIDE.
+  ~
+  ~  AndroidIDE is free software: you can redistribute it and/or modify
+  ~  it under the terms of the GNU General Public License as published by
+  ~  the Free Software Foundation, either version 3 of the License, or
+  ~  (at your option) any later version.
+  ~
+  ~  AndroidIDE is distributed in the hope that it will be useful,
+  ~  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  ~  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  ~  GNU General Public License for more details.
+  ~
+  ~  You should have received a copy of the GNU General Public License
+  ~   along with AndroidIDE.  If not, see <https://www.gnu.org/licenses/>.
+  -->
+
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+  xmlns:app="http://schemas.android.com/apk/res-auto"
+  xmlns:tools="http://schemas.android.com/tools"
+  android:layout_width="match_parent"
+  android:layout_height="wrap_content"
+  android:paddingTop="8dp"
+  android:paddingBottom="8dp"
+  android:paddingStart="16dp"
+  android:paddingEnd="16dp">
+
+  <TextView
+    android:id="@+id/module_name"
+    android:layout_width="0dp"
+    android:layout_height="wrap_content"
+    android:textAppearance="@style/TextAppearance.Material3.BodyLarge"
+    android:textStyle="bold"
+    app:layout_constraintEnd_toEndOf="parent"
+    app:layout_constraintStart_toStartOf="parent"
+    app:layout_constraintTop_toTopOf="parent"
+    tools:text=":app" />
+
+  <com.google.android.material.textfield.TextInputLayout
+    android:id="@+id/variant_name_layout"
+    style="@style/Widget.Material3.TextInputLayout.OutlinedBox.Dense.ExposedDropdownMenu"
+    android:layout_width="0dp"
+    android:layout_height="wrap_content"
+    android:layout_marginTop="8dp"
+    android:hint="Build Variant"
+    app:layout_constraintEnd_toEndOf="parent"
+    app:layout_constraintStart_toStartOf="parent"
+    app:layout_constraintTop_toBottomOf="@id/module_name">
+
+    <AutoCompleteTextView
+      android:id="@+id/variant_name"
+      android:layout_width="match_parent"
+      android:layout_height="match_parent"
+      android:inputType="none" />
+
+  </com.google.android.material.textfield.TextInputLayout>
+
+  <com.google.android.material.button.MaterialButton
+    android:id="@+id/edit_config"
+    style="@style/Widget.Material3.Button.TextButton.Icon"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:layout_marginTop="4dp"
+    android:text="Edit Version &amp; SDK"
+    app:icon="@drawable/ic_edit"
+    app:layout_constraintStart_toStartOf="parent"
+    app:layout_constraintTop_toBottomOf="@id/variant_name_layout" />
+
+  <TextView
+    android:id="@+id/module_info"
+    android:layout_width="0dp"
+    android:layout_height="wrap_content"
+    android:layout_marginStart="8dp"
+    android:gravity="center_vertical|end"
+    android:textAppearance="@style/TextAppearance.Material3.BodySmall"
+    android:textColor="?android:textColorSecondary"
+    app:layout_constraintBottom_toBottomOf="@id/edit_config"
+    app:layout_constraintEnd_toEndOf="parent"
+    app:layout_constraintStart_toEndOf="@id/edit_config"
+    app:layout_constraintTop_toTopOf="@id/edit_config"
+    tools:text="v1.0 • Min 21 • Target 34" />
+
+</androidx.constraintlayout.widget.ConstraintLayout>

@@ -1,0 +1,18 @@
+{
+  "baseVersionCode": 1024,
+  "baseVersionName": "2.0.0+NS.r05",
+  "baseUrl": "https://github.com/Neeraj-OS-Developer/Android-Engine/releases/download/v{versionName}",
+  "variants": {
+    "armeabi-v7a": {
+      "versionCode": 1024,
+      "versionName": "2.0.0+NS.r05",
+      "apkUrl": "{baseUrl}/android-code-studio-armeabi-v7a-{versionName}.apk"
+    },
+    "arm64-v8a": {
+      "versionCode": 1024,
+      "versionName": "2.0.0+NS.r05", 
+      "apkUrl": "{baseUrl}/android-code-studio-aarch64-{versionName}.apk"
+    }
+  },
+  "changelog": "https://raw.githubusercontent.com/Neeraj-OS-Developer/Android-Engine/refs/heads/dev/whatsnew/v1.0.0+gh.r3.md"
+}

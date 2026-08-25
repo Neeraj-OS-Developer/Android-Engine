@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
+  xmlns:app="http://schemas.android.com/apk/res-auto"
+  android:layout_width="match_parent"
+  android:layout_height="wrap_content"
+  app:cardCornerRadius="28dp"
+  app:cardElevation="0dp"
+  style="?attr/materialCardViewElevatedStyle">
+
+    <LinearLayout
+      android:layout_width="match_parent"
+      android:layout_height="wrap_content"
+      android:orientation="vertical"
+      android:padding="24dp">
+
+        <com.google.android.material.textview.MaterialTextView
+          android:layout_width="match_parent"
+          android:layout_height="wrap_content"
+          android:text="@string/installing_lsp"
+          android:textAppearance="?attr/textAppearanceHeadlineSmall"
+          android:layout_marginBottom="16dp" />
+
+        <com.google.android.material.progressindicator.CircularProgressIndicator
+          android:id="@+id/progress_indicator"
+          android:layout_width="wrap_content"
+          android:layout_height="wrap_content"
+          android:layout_gravity="center"
+          android:indeterminate="true"
+          android:layout_marginBottom="16dp"
+          style="@style/Widget.Material3.CircularProgressIndicator" />
+
+        <com.google.android.material.card.MaterialCardView
+          android:layout_width="match_parent"
+          android:layout_height="wrap_content"
+          app:cardCornerRadius="16dp"
+          app:cardElevation="0dp"
+          style="?attr/materialCardViewElevatedStyle">
+            <com.tom.rv2ide.editor.ui.IDEEditor
+              android:id="@+id/tv_output"
+              android:layout_width="match_parent"
+              android:layout_height="200dp"
+              android:fontFamily="monospace" />
+        </com.google.android.material.card.MaterialCardView>
+
+        <LinearLayout
+          android:layout_width="wrap_content"
+          android:layout_height="wrap_content"
+          android:orientation="horizontal"
+          android:layout_marginTop="16dp">
+
+            <com.google.android.material.button.MaterialButton
+              android:id="@+id/btn_copy"
+              android:layout_width="wrap_content"
+              android:layout_height="wrap_content"
+              android:text="@string/copy"
+              style="@style/Widget.Material3.Button.TextButton"
+              android:layout_marginEnd="8dp" />
+
+            <com.google.android.material.button.MaterialButton
+              android:id="@+id/btn_close"
+              android:layout_width="wrap_content"
+              android:layout_height="wrap_content"
+              android:text="@string/btn_close" />
+        </LinearLayout>
+
+    </LinearLayout>
+
+</com.google.android.material.card.MaterialCardView>

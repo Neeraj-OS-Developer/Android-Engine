@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="16dp">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="AI File Write Permissions"
+        android:textSize="16sp"
+        android:textStyle="bold"
+        android:layout_marginBottom="16dp"/>
+
+    <CheckBox
+        android:id="@+id/enableWriteCheckbox"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Enable AI file writing"
+        android:layout_marginBottom="8dp"/>
+
+    <CheckBox
+        android:id="@+id/requireConfirmationCheckbox"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Require confirmation before writing"
+        android:layout_marginBottom="8dp"/>
+
+    <CheckBox
+        android:id="@+id/autoBackupCheckbox"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Auto backup files before writing"
+        android:layout_marginBottom="8dp"/>
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Warning: Enabling file writing allows AI to modify your project files. Always review changes before applying."
+        android:textSize="12sp"
+        android:textColor="@android:color/holo_red_dark"
+        android:layout_marginTop="8dp"/>
+</LinearLayout>

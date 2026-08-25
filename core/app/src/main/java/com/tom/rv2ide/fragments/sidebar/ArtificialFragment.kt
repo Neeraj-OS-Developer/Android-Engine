@@ -1,0 +1,247 @@
+package com.tom.rv2ide.fragments.sidebar
+
+import android.os.Bundle
+import android.view.LayoutInflater
+import android.view.View
+import android.view.ViewGroup
+import android.view.animation.AnimationUtils
+import androidx.activity.OnBackPressedCallback
+import androidx.fragment.app.Fragment
+import androidx.fragment.app.commit
+import androidx.lifecycle.lifecycleScope
+import androidx.viewpager2.widget.ViewPager2
+import com.google.android.material.floatingactionbutton.FloatingActionButton
+import com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
+import com.google.android.material.navigationrail.NavigationRailView
+import com.google.android.material.snackbar.Snackbar
+import com.google.android.material.tabs.TabLayout
+import com.google.android.material.tabs.TabLayoutMediator
+import com.tom.rv2ide.R
+import com.tom.rv2ide.adapters.ViewPagerAdapter
+import com.tom.rv2ide.artificial.agents.AIAgentManager
+import com.tom.rv2ide.artificial.agents.Agents
+import com.tom.rv2ide.fragments.ChatFragment
+import com.tom.rv2ide.fragments.AIHistoryFragment
+import com.tom.rv2ide.managers.NavigationRailManager
+import com.tom.rv2ide.managers.CodeCompletionManager
+import com.tom.rv2ide.ui.CodeEditorView
+
+class ArtificialFragment(
+    private val editorView: CodeEditorView? = null
+) : Fragment() {
+
+    private lateinit var aiAgent: AIAgentManager
+    private lateinit var agents: Agents
+    private lateinit var viewPager: ViewPager2
+    private lateinit var tabLayout: TabLayout
+    private lateinit var undoFab: ExtendedFloatingActionButton
+    private lateinit var fabToggleRail: FloatingActionButton
+    private lateinit var navigationRail: NavigationRailView
+    private lateinit var overlayView: View
+    private lateinit var navigationRailManager: NavigationRailManager
+    private lateinit var contentContainer: View
+    
+    private var savedViewPagerPosition = 0
+    private var savedContentContainerVisibility = View.GONE
+    
+    private val backPressedCallback = object : OnBackPressedCallback(false) {
+        override fun handleOnBackPressed() {
+            showMainContent()
+        }
+    }
+    
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        savedInstanceState?.let {
+            savedViewPagerPosition = it.getInt(KEY_VIEWPAGER_POSITION, 0)
+            savedContentContainerVisibility = it.getInt(KEY_CONTENT_VISIBILITY, View.GONE)
+        }
+    }
+    
+    override fun onCreateView(
+        inflater: LayoutInflater,
+        container: ViewGroup?,
+        savedInstanceState: Bundle?
+    ): View? {
+        return inflater.inflate(R.layout.fragment_artificial, container, false)
+    }
+    
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        super.onViewCreated(view, savedInstanceState)
+    
+        aiAgent = AIAgentManager(requireContext())
+        agents = Agents(requireContext())
+    
+        viewPager = view.findViewById(R.id.viewPager)
+        tabLayout = view.findViewById(R.id.tabLayout)
+        undoFab = view.findViewById(R.id.undoFab)
+        fabToggleRail = view.findViewById(R.id.fabToggleRail)
+        navigationRail = view.findViewById(R.id.navigationRail)
+        overlayView = view.findViewById(R.id.overlayView)
+        contentContainer = view.findViewById(R.id.contentContainer)
+    
+        requireActivity().onBackPressedDispatcher.addCallback(viewLifecycleOwner, backPressedCallback)
+    
+        setupNavigationRail()
+        setupFab()
+        
+        view.post {
+            setupViewPager()
+            
+            if (savedInstanceState != null) {
+                viewPager.setCurrentItem(savedViewPagerPosition, false)
+                contentContainer.visibility = savedContentContainerVisibility
+                viewPager.visibility = if (savedContentContainerVisibility == View.VISIBLE) View.GONE else View.VISIBLE
+                tabLayout.visibility = if (savedContentContainerVisibility == View.VISIBLE) View.GONE else View.VISIBLE
+                backPressedCallback.isEnabled = savedContentContainerVisibility == View.VISIBLE
+            }
+        }
+    }
+    
+    private fun setupViewPager() {
+        val adapter = ViewPagerAdapter(requireActivity(), aiAgent)
+        viewPager.adapter = adapter
+        viewPager.offscreenPageLimit = 1
+        viewPager.isUserInputEnabled = true
+    
+        TabLayoutMediator(tabLayout, viewPager) { tab, position ->
+            tab.text = when (position) {
+                0 -> "Chat"
+                1 -> "History"
+                else -> ""
+            }
+        }.attach()
+        
+        viewPager.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
+            override fun onPageSelected(position: Int) {
+                super.onPageSelected(position)
+                if (navigationRailManager.isRailExpanded()) {
+                    navigationRailManager.collapse()
+                }
+            }
+        })
+        
+        viewPager.post {
+            viewPager.requestLayout()
+        }
+    }
+        
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        if (::viewPager.isInitialized) {
+            outState.putInt(KEY_VIEWPAGER_POSITION, viewPager.currentItem)
+        }
+        if (::contentContainer.isInitialized) {
+            outState.putInt(KEY_CONTENT_VISIBILITY, contentContainer.visibility)
+        }
+    }
+
+    private fun setupNavigationRail() {
+        navigationRailManager = NavigationRailManager(
+            navigationRail,
+            overlayView,
+            fabToggleRail
+        )
+        
+        navigationRail.setOnItemSelectedListener { item ->
+            when (item.itemId) {
+                R.id.nav_chat -> {
+                    if (contentContainer.visibility == View.VISIBLE) {
+                        showMainContent()
+                    }
+                    viewPager.currentItem = 0
+                    navigationRailManager.collapse()
+                    true
+                }
+                R.id.nav_settings -> {
+                    openAIPreferences()
+                    navigationRailManager.collapse()
+                    true
+                }
+                else -> false
+            }
+        }
+    }
+    
+    private fun getCurrentChatFragment(): ChatFragment? {
+        val fragments = childFragmentManager.fragments
+        return fragments.find { it is ChatFragment && it.isVisible } as? ChatFragment
+    }
+
+    private fun openAIPreferences() {
+        val chatFragment = getCurrentChatFragment()
+        val completionManager = chatFragment?.getCodeCompletionManager()
+        
+        val preferencesFragment = AIPreferencesFragment(
+            aiAgent,
+            agents,
+            completionManager
+        )
+        
+        val slideIn = AnimationUtils.loadAnimation(requireContext(), android.R.anim.slide_in_left)
+        val slideOut = AnimationUtils.loadAnimation(requireContext(), android.R.anim.slide_out_right)
+        
+        viewPager.startAnimation(slideOut)
+        viewPager.visibility = View.GONE
+        tabLayout.visibility = View.GONE
+        
+        contentContainer.visibility = View.VISIBLE
+        contentContainer.startAnimation(slideIn)
+        backPressedCallback.isEnabled = true
+        
+        childFragmentManager.commit {
+            replace(R.id.contentContainer, preferencesFragment)
+            addToBackStack("ai_preferences")
+        }
+    }
+
+    private fun showMainContent() {
+        val slideIn = AnimationUtils.loadAnimation(requireContext(), android.R.anim.slide_in_left)
+        val slideOut = AnimationUtils.loadAnimation(requireContext(), android.R.anim.slide_out_right)
+        
+        contentContainer.startAnimation(slideOut)
+        contentContainer.visibility = View.GONE
+        
+        viewPager.visibility = View.VISIBLE
+        tabLayout.visibility = View.VISIBLE
+        viewPager.startAnimation(slideIn)
+        
+        backPressedCallback.isEnabled = false
+        
+        if (childFragmentManager.backStackEntryCount > 0) {
+            childFragmentManager.popBackStack()
+        }
+    }
+
+    private fun setupFab() {
+        undoFab.setOnClickListener {
+            val success = aiAgent.undoLastModification()
+            if (success) {
+                view?.let {
+                    Snackbar.make(it, "Last modification undone", Snackbar.LENGTH_SHORT).show()
+                }
+                undoFab.visibility = View.GONE
+            } else {
+                view?.let {
+                    Snackbar.make(it, "Nothing to undo", Snackbar.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+    
+    override fun onDestroyView() {
+        navigationRailManager.cleanup()
+        backPressedCallback.remove()
+        super.onDestroyView()
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        com.tom.rv2ide.utils.EditorSidebarActions.removeFragmentFromCache("ide.editor.sidebar.ai_agent")
+    }
+    
+    companion object {
+        private const val KEY_VIEWPAGER_POSITION = "viewpager_position"
+        private const val KEY_CONTENT_VISIBILITY = "content_visibility"
+    }
+}
