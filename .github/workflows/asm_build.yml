@@ -24,15 +24,8 @@ jobs:
     strategy:
       fail-fast: false          # Continue other versions even if one fails
       matrix:
-        # JDK versions that are compatible with your AGP (8.x requires 17+)
         java: [ '17', '21' ]
-        # Kotlin versions to test (adjust as needed)
-        # Older versions may not work with the latest AGP – test and remove if incompatible
         kotlin: [ '1.8.22', '1.9.24', '2.0.21' ]
-        exclude:
-          # Optional: exclude combos known to be problematic
-          # - java: '21'
-          #   kotlin: '1.8.22'
 
     steps:
       - name: Cancel previous runs
