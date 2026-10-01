@@ -20,23 +20,61 @@ package com.tom.rv2ide.utils
 import android.content.Context
 import java.lang.ref.WeakReference
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CopyOnWriteArraySet
 import java.util.concurrent.atomic.AtomicBoolean
-import kotlinx.coroutines.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import org.slf4j.LoggerFactory
 
 /**
- * Comprehensive memory management system for AndroidIDE. Handles memory pressure, cleanup, and
- * optimization strategies.
+ * Ultra-optimized memory management system for AndroidIDE.
  *
- * @author AndroidIDE Team
+ * <p>Performance characteristics:
+ * * **Zero-allocation hot path** when the heap snapshot is unchanged — cached [MemoryInfo].
+ * * **Adaptive polling** — 8s when idle, 4s under medium load, 2s under high/critical.
+ * * **Lock-free listener iteration** via [CopyOnWriteArraySet].
+ * * **Pre-bucketed cleanup tasks** — no per-cycle `filter {}` allocations.
+ * * **Integer math** for pressure calculation — no `Float` boxing.
+ * * **Level-transition notifications** — listeners only fire on state change.
+ *
+ * @author Neeraj-OS-developer
  */
-class MemoryManager private constructor(private val context: WeakReference<Context>?) {
+class MemoryManager private constructor(context: Context?) {
 
   private val log = LoggerFactory.getLogger(MemoryManager::class.java)
-  private val memoryPressureListeners = mutableSetOf<MemoryPressureListener>()
+
+  /** Kept only for API compatibility — manager does not currently use the context. */
+  @Suppress("unused")
+  private val contextRef: WeakReference<Context>? = context?.let { WeakReference(it) }
+
+  /** Lock-free iteration; writes (add/remove) are rare. */
+  private val memoryPressureListeners = CopyOnWriteArraySet<MemoryPressureListener>()
+
+  /** O(1) register/unregister by task name. */
   private val cleanupTasks = ConcurrentHashMap<String, CleanupTask>()
+
+  /**
+   * Priority-sorted task list — rebuilt **only** on register/unregister, never on the monitoring
+   * cycle. Sorted ascending so we can iterate in reverse to hit CRITICAL first.
+   */
+  @Volatile private var tasksByPriority: List<CleanupTask> = emptyList()
+
   private val isMonitoring = AtomicBoolean(false)
-  private val monitoringScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+  @Volatile private var monitoringJob: Job? = null
+
+  /** Avoid re-notifying the same pressure level repeatedly. */
+  @Volatile private var lastNotifiedLevel: MemoryPressureLevel? = null
+
+  /** Cached snapshot — re-used when heap numbers are unchanged. */
+  @Volatile private var cachedMemoryInfo: MemoryInfo? = null
+
+  /** Tracks how many consecutive LOW checks we've seen, for idle back-off. */
+  private var consecutiveLowChecks = 0
 
   companion object {
     @Volatile private var INSTANCE: MemoryManager? = null
@@ -49,173 +87,209 @@ class MemoryManager private constructor(private val context: WeakReference<Conte
     const val CRITICAL_MEMORY_THRESHOLD = 90 // Percentage
     const val HIGH_MEMORY_THRESHOLD = 80 // Percentage
     const val MEDIUM_MEMORY_THRESHOLD = 70 // Percentage
-    const val MEMORY_CHECK_INTERVAL = 5000L // 5 seconds
+
+    /**
+     * Legacy constant — retained for API compatibility. The manager now uses adaptive intervals:
+     * see [INTERVAL_IDLE], [INTERVAL_MEDIUM], [INTERVAL_HIGH].
+     */
+    @Deprecated("Adaptive intervals are used instead", ReplaceWith(""))
+    const val MEMORY_CHECK_INTERVAL = 5_000L
+
+    // Adaptive intervals (ms).
+    private const val INTERVAL_IDLE = 8_000L // LOW after back-off streak
+    private const val INTERVAL_MEDIUM = 4_000L // MEDIUM, or LOW warming up
+    private const val INTERVAL_HIGH = 2_000L // HIGH / CRITICAL
+
+    /** After this many consecutive LOW checks, drop to [INTERVAL_IDLE]. */
+    private const val IDLE_BACKOFF_STREAK = 3
   }
 
-  private constructor(context: Context?) : this(WeakReference(context)) {}
-
   /** Start monitoring memory usage and perform automatic cleanup. */
+  @Synchronized
   fun startMonitoring() {
     if (isMonitoring.get()) {
-      log.warn("Memory monitoring is already active")
+      if (log.isDebugEnabled) log.debug("Memory monitoring is already active")
       return
     }
 
     isMonitoring.set(true)
-    log.info("Starting memory monitoring")
+    lastNotifiedLevel = null
+    consecutiveLowChecks = 0
+    if (log.isInfoEnabled) log.info("Starting memory monitoring")
 
-    monitoringScope.launch {
-      while (isMonitoring.get()) {
-        checkMemoryPressure()
-        delay(MEMORY_CHECK_INTERVAL)
-      }
-    }
+    // Fresh scope each start — old one may have been cancelled by stopMonitoring().
+    monitoringJob =
+        CoroutineScope(Dispatchers.Default + SupervisorJob()).launch {
+          while (isActive && isMonitoring.get()) {
+            val nextDelay =
+                try {
+                  intervalFor(checkMemoryPressure())
+                } catch (t: Throwable) {
+                  log.error("Memory monitor cycle failed", t)
+                  INTERVAL_HIGH // aggressive retry on error
+                }
+            delay(nextDelay)
+          }
+        }
   }
 
   /** Stop memory monitoring. */
+  @Synchronized
   fun stopMonitoring() {
-    isMonitoring.set(false)
-    monitoringScope.cancel()
-    log.info("Stopped memory monitoring")
+    if (!isMonitoring.compareAndSet(true, false)) return
+    monitoringJob?.cancel()
+    monitoringJob = null
+    if (log.isInfoEnabled) log.info("Stopped memory monitoring")
   }
 
-  /** Check current memory pressure and trigger appropriate cleanup. */
-  private fun checkMemoryPressure() {
-    val memoryInfo = getMemoryInfo() ?: return
-    val pressureLevel = calculateMemoryPressure(memoryInfo)
+  private fun intervalFor(level: MemoryPressureLevel): Long =
+      when (level) {
+        MemoryPressureLevel.CRITICAL,
+        MemoryPressureLevel.HIGH -> INTERVAL_HIGH
+        MemoryPressureLevel.MEDIUM -> INTERVAL_MEDIUM
+        MemoryPressureLevel.LOW -> {
+          consecutiveLowChecks++
+          if (consecutiveLowChecks >= IDLE_BACKOFF_STREAK) INTERVAL_IDLE else INTERVAL_MEDIUM
+        }
+      }
 
-    when (pressureLevel) {
+  /**
+   * Check current memory pressure and trigger appropriate cleanup.
+   *
+   * @return the pressure level observed.
+   */
+  private fun checkMemoryPressure(): MemoryPressureLevel {
+    val info = getMemoryInfo() ?: return MemoryPressureLevel.LOW
+    val level = calculateMemoryPressure(info)
+
+    when (level) {
       MemoryPressureLevel.CRITICAL -> {
-        log.warn("Critical memory pressure detected: ${memoryInfo.usedPercent}%")
+        if (log.isWarnEnabled) log.warn("Critical memory pressure detected: ${info.usedPercent}%")
         performCriticalCleanup()
-        notifyMemoryPressure(MemoryPressureLevel.CRITICAL, memoryInfo)
       }
       MemoryPressureLevel.HIGH -> {
-        log.warn("High memory pressure detected: ${memoryInfo.usedPercent}%")
+        if (log.isWarnEnabled) log.warn("High memory pressure detected: ${info.usedPercent}%")
         performHighCleanup()
-        notifyMemoryPressure(MemoryPressureLevel.HIGH, memoryInfo)
       }
       MemoryPressureLevel.MEDIUM -> {
-        log.info("Medium memory pressure detected: ${memoryInfo.usedPercent}%")
+        if (log.isInfoEnabled) log.info("Medium memory pressure detected: ${info.usedPercent}%")
         performMediumCleanup()
-        notifyMemoryPressure(MemoryPressureLevel.MEDIUM, memoryInfo)
       }
-      MemoryPressureLevel.LOW -> {
-        // No action needed
-      }
+      MemoryPressureLevel.LOW -> Unit
     }
+
+    // Only notify listeners on level transitions to prevent spam.
+    if (level != lastNotifiedLevel) {
+      lastNotifiedLevel = level
+      notifyMemoryPressure(level, info)
+    }
+    return level
   }
 
-  /** Get current memory information. */
+  /**
+   * Get current memory information. Returns a cached instance when the heap numbers are unchanged,
+   * eliminating per-cycle allocation on the hot path.
+   */
   private fun getMemoryInfo(): MemoryInfo? {
     val runtime = Runtime.getRuntime()
-    val usedMemory = runtime.totalMemory() - runtime.freeMemory()
-    val maxMemory = runtime.maxMemory()
-    val usedPercent = (usedMemory.toFloat() / maxMemory.toFloat() * 100).toInt()
+    val max = runtime.maxMemory()
+    if (max <= 0L) return null
 
-    return MemoryInfo(
-        usedMemory = usedMemory,
-        maxMemory = maxMemory,
-        freeMemory = runtime.freeMemory(),
-        usedPercent = usedPercent,
-    )
-  }
+    val free = runtime.freeMemory()
+    val total = runtime.totalMemory()
+    val used = total - free
+    // Integer math avoids Float boxing and precision loss.
+    val usedPercent = (used * 100L / max).toInt()
 
-  /** Calculate memory pressure level. */
-  private fun calculateMemoryPressure(memoryInfo: MemoryInfo): MemoryPressureLevel {
-    return when {
-      memoryInfo.usedPercent >= CRITICAL_MEMORY_THRESHOLD -> MemoryPressureLevel.CRITICAL
-      memoryInfo.usedPercent >= HIGH_MEMORY_THRESHOLD -> MemoryPressureLevel.HIGH
-      memoryInfo.usedPercent >= MEDIUM_MEMORY_THRESHOLD -> MemoryPressureLevel.MEDIUM
-      else -> MemoryPressureLevel.LOW
+    val cached = cachedMemoryInfo
+    if (cached != null &&
+        cached.usedMemory == used &&
+        cached.maxMemory == max &&
+        cached.freeMemory == free) {
+      return cached
     }
+
+    return MemoryInfo(used, max, free, usedPercent).also { cachedMemoryInfo = it }
   }
 
-  /** Perform critical memory cleanup. */
+  private fun calculateMemoryPressure(info: MemoryInfo): MemoryPressureLevel =
+      when {
+        info.usedPercent >= CRITICAL_MEMORY_THRESHOLD -> MemoryPressureLevel.CRITICAL
+        info.usedPercent >= HIGH_MEMORY_THRESHOLD -> MemoryPressureLevel.HIGH
+        info.usedPercent >= MEDIUM_MEMORY_THRESHOLD -> MemoryPressureLevel.MEDIUM
+        else -> MemoryPressureLevel.LOW
+      }
+
+  /** Perform critical memory cleanup — runs all registered tasks, highest priority first. */
   private fun performCriticalCleanup() {
-    log.warn("Performing critical memory cleanup")
-
-    // Force garbage collection multiple times
-    System.gc()
-    Thread.sleep(100)
-    System.gc()
-    Thread.sleep(100)
-    System.gc()
-
-    // Execute all cleanup tasks
-    cleanupTasks.values.forEach { task ->
+    val tasks = tasksByPriority
+    for (i in tasks.indices.reversed()) {
+      val task = tasks[i]
       try {
         task.performCriticalCleanup()
-      } catch (e: Exception) {
-        log.error("Error during critical cleanup task: ${task.name}", e)
+      } catch (t: Throwable) {
+        log.error("Error during critical cleanup task: ${task.name}", t)
       }
     }
+    // Single GC hint — repeated System.gc() with sleeps is an anti-pattern and wastes CPU.
+    System.gc()
+  }
 
-    // Clear caches
-    clearSystemCaches()
-
-    // Additional aggressive cleanup
-    try {
-      Runtime.getRuntime().gc()
-      Thread.sleep(50)
-    } catch (e: Exception) {
-      log.error("Error during additional cleanup", e)
+  /** Perform high memory cleanup — HIGH and CRITICAL tasks only. */
+  private fun performHighCleanup() {
+    val tasks = tasksByPriority
+    val minOrdinal = CleanupPriority.HIGH.ordinal
+    for (i in tasks.indices.reversed()) {
+      val task = tasks[i]
+      if (task.priority.ordinal < minOrdinal) continue
+      try {
+        task.performHighCleanup()
+      } catch (t: Throwable) {
+        log.error("Error during high cleanup task: ${task.name}", t)
+      }
     }
   }
 
-  /** Perform high memory cleanup. */
-  private fun performHighCleanup() {
-    log.info("Performing high memory cleanup")
-
-    // Execute high priority cleanup tasks
-    cleanupTasks.values
-        .filter { it.priority >= CleanupPriority.HIGH }
-        .forEach { task ->
-          try {
-            task.performHighCleanup()
-          } catch (e: Exception) {
-            log.error("Error during high cleanup task: ${task.name}", e)
-          }
-        }
-  }
-
-  /** Perform medium memory cleanup. */
+  /** Perform medium memory cleanup — MEDIUM, HIGH and CRITICAL tasks. */
   private fun performMediumCleanup() {
-    log.info("Performing medium memory cleanup")
-
-    // Execute medium priority cleanup tasks
-    cleanupTasks.values
-        .filter { it.priority >= CleanupPriority.MEDIUM }
-        .forEach { task ->
-          try {
-            task.performMediumCleanup()
-          } catch (e: Exception) {
-            log.error("Error during medium cleanup task: ${task.name}", e)
-          }
-        }
-  }
-
-  /** Clear system caches. */
-  private fun clearSystemCaches() {
-    try {
-      // DO NOT clear application user data - this deletes all project files!
-      // Only clear memory caches, not file system data
-      log.info("Skipping system cache clearing to preserve user data")
-    } catch (e: Exception) {
-      log.error("Error clearing system caches", e)
+    val tasks = tasksByPriority
+    val minOrdinal = CleanupPriority.MEDIUM.ordinal
+    for (i in tasks.indices.reversed()) {
+      val task = tasks[i]
+      if (task.priority.ordinal < minOrdinal) continue
+      try {
+        task.performMediumCleanup()
+      } catch (t: Throwable) {
+        log.error("Error during medium cleanup task: ${task.name}", t)
+      }
     }
   }
 
   /** Register a cleanup task. */
+  @Synchronized
   fun registerCleanupTask(task: CleanupTask) {
     cleanupTasks[task.name] = task
-    log.info("Registered cleanup task: ${task.name}")
+    rebuildTaskBuckets()
+    if (log.isInfoEnabled) log.info("Registered cleanup task: ${task.name}")
   }
 
   /** Unregister a cleanup task. */
+  @Synchronized
   fun unregisterCleanupTask(name: String) {
-    cleanupTasks.remove(name)
-    log.info("Unregistered cleanup task: $name")
+    if (cleanupTasks.remove(name) != null) {
+      rebuildTaskBuckets()
+      if (log.isInfoEnabled) log.info("Unregistered cleanup task: $name")
+    }
+  }
+
+  /**
+   * Rebuilds the priority-sorted task list. Called **only** on register/unregister — not on every
+   * monitoring cycle — eliminating the per-cycle `filter {}` allocation that the previous
+   * implementation performed.
+   */
+  private fun rebuildTaskBuckets() {
+    // Ascending sort — we iterate in reverse so CRITICAL / HIGH tasks run first.
+    tasksByPriority = cleanupTasks.values.sortedBy { it.priority.ordinal }
   }
 
   /** Add memory pressure listener. */
@@ -228,25 +302,23 @@ class MemoryManager private constructor(private val context: WeakReference<Conte
     memoryPressureListeners.remove(listener)
   }
 
-  /** Notify listeners about memory pressure. */
   private fun notifyMemoryPressure(level: MemoryPressureLevel, memoryInfo: MemoryInfo) {
-    memoryPressureListeners.forEach { listener ->
+    // CopyOnWriteArraySet iterates without locks or allocation.
+    for (listener in memoryPressureListeners) {
       try {
         listener.onMemoryPressure(level, memoryInfo)
-      } catch (e: Exception) {
-        log.error("Error notifying memory pressure listener", e)
+      } catch (t: Throwable) {
+        log.error("Error notifying memory pressure listener", t)
       }
     }
   }
 
   /** Get current memory statistics. */
-  fun getMemoryStatistics(): MemoryInfo? {
-    return getMemoryInfo()
-  }
+  fun getMemoryStatistics(): MemoryInfo? = getMemoryInfo()
 
-  /** Force memory cleanup. */
+  /** Force memory cleanup synchronously. */
   fun forceCleanup() {
-    log.info("Forcing memory cleanup")
+    if (log.isInfoEnabled) log.info("Forcing memory cleanup")
     performCriticalCleanup()
   }
 
