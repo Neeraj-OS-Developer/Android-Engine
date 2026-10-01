@@ -84,6 +84,14 @@ object FileIconManager {
         "apk" to R.drawable.ic_file_apk,
         "aab" to R.drawable.ic_file_apk,
         "dex" to R.drawable.ic_file_dex,
+        
+        // assets
+        "html" to R.drawable.ic_html,
+        "js" to R.drawable.ic_javascript,
+        "bin" to R.drawable.ic_scan_bin,
+        "css" to R.drawable.ic_css,
+        "jks" to R.drawable.ic_keys,
+        "gif" to R.drawable.ic_gif,
 
     )
     
