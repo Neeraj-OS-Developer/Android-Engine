@@ -29,7 +29,7 @@ import com.tom.rv2ide.app.IDEApplication
 import com.tom.rv2ide.app.configuration.IDEBuildConfigProvider
 import com.tom.rv2ide.buildinfo.BuildInfo
 
-/** @author Akash Yadav */
+/** @author Neeraj-OS-developer */
 object BuildInfoUtils {
 
   private val BUILD_INFO_HEADER by lazy {
