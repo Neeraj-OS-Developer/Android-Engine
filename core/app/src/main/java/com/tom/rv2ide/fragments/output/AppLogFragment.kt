@@ -62,7 +62,7 @@ import com.tom.rv2ide.preferences.internal.DevOpsPreferences
 /**
  * Fragment to show application logs from LogReceiverService.
  *
- * @author Mohammed-baqer-null @ https://github.com/Mohammed-baqer-null
+ * @author Neeraj-OS-developer @ https://github.com/Neeraj-OS-Developer
  */
 class AppLogFragment :
     EmptyStateFragment<FragmentLogViewerBinding>(R.layout.fragment_log_viewer, FragmentLogViewerBinding::bind),
@@ -79,11 +79,11 @@ class AppLogFragment :
 
         private const val LOGWIRE_HEADER = """
 ╔═══════════════════════════════════════════════════════════╗
-║                    Powered by LogWire                     ║
-║               Real-time Log Monitoring Tool               ║
-║                                                           ║
-║   Author: Mohammed-baqer-null                             ║
-║   GitHub: https://github.com/Mohammed-baqer-null          ║
+║                    Powered by LogWire                    ║
+║               Real-time Log Monitoring Tool              ║
+║                                                          ║
+║   Author: Neeraj-OS-developer                            ║
+║   GitHub: https://github.com/Neeraj-OS-Developer         ║
 ╚═══════════════════════════════════════════════════════════╝
 
 """
