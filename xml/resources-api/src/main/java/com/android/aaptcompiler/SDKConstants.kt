@@ -11,8 +11,9 @@ package com.android.aaptcompiler
  *  - Safe helpers (auto-clamp, nearest-known, validation).
  *
  * This object NEVER throws. Every lookup has a graceful fallback.
+ * Full Original internal object SDKConstants 
  */
-/*internal*/ object SDKConstants {
+  object SDKConstants {
 
     // ------------------------------------------------------------------
     //  RAW API LEVEL CONSTANTS  (Android 1.0 → 16)
