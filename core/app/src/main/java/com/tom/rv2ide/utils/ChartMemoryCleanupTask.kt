@@ -17,76 +17,111 @@
 
 package com.tom.rv2ide.utils
 
+import android.os.Handler
+import android.os.Looper
+import android.view.View
 import com.github.mikephil.charting.charts.LineChart
 import com.github.mikephil.charting.data.Entry
 import com.github.mikephil.charting.data.LineData
 import com.github.mikephil.charting.data.LineDataSet
 import java.lang.ref.WeakReference
+import java.util.concurrent.ConcurrentHashMap
 import org.slf4j.LoggerFactory
 
 /**
  * Cleanup task specifically for chart memory optimization. Reduces memory usage by optimizing chart
  * data and rendering.
  *
- * @author AndroidIDE Team
+ * <p>Thread-safety: safe to call from any thread. All chart mutations are marshalled to the main
+ * thread because MPAndroidChart is not thread-safe.
+ *
+ * @author Neeraj-OS-developer
  */
 class ChartMemoryCleanupTask : MemoryManager.CleanupTask {
 
   private val log = LoggerFactory.getLogger(ChartMemoryCleanupTask::class.java)
-  private val chartReferences = mutableSetOf<WeakReference<LineChart>>()
+
+  /**
+   * Thread-safe set of weak references. Dead entries are pruned lazily during iteration to prevent
+   * the set from growing unbounded.
+   */
+  private val chartReferences: MutableSet<WeakReference<LineChart>> = ConcurrentHashMap.newKeySet()
+
+  private val mainHandler: Handler = Handler(Looper.getMainLooper())
 
   override val name: String = "ChartMemoryCleanup"
+
   override val priority: MemoryManager.CleanupPriority = MemoryManager.CleanupPriority.HIGH
 
-  /** Register a chart for memory cleanup. */
+  /** Register a chart for memory cleanup. Safe to call multiple times (no-op duplicates). */
   fun registerChart(chart: LineChart) {
     chartReferences.add(WeakReference(chart))
-    log.debug("Registered chart for memory cleanup")
+    if (log.isDebugEnabled) log.debug("Registered chart for memory cleanup")
   }
 
-  /** Unregister a chart from memory cleanup. */
+  /** Unregister a chart from memory cleanup. Uses reference equality to avoid stale removals. */
   fun unregisterChart(chart: LineChart) {
-    chartReferences.removeAll { it.get() == chart }
-    log.debug("Unregistered chart from memory cleanup")
+    chartReferences.removeAll { it.get() === chart }
+    if (log.isDebugEnabled) log.debug("Unregistered chart from memory cleanup")
   }
 
   override fun performMediumCleanup() {
-    log.debug("Performing medium chart cleanup")
-
-    // Reduce chart data points
-    chartReferences.forEach { ref ->
-      ref.get()?.let { chart -> optimizeChartData(chart, reduceDataPoints = true) }
-    }
+    if (log.isDebugEnabled) log.debug("Performing medium chart cleanup")
+    forEachLiveChart { chart -> optimizeChartData(chart, reduceDataPoints = true) }
   }
 
   override fun performHighCleanup() {
-    log.debug("Performing high chart cleanup")
-
-    // More aggressive data reduction
-    chartReferences.forEach { ref ->
-      ref.get()?.let { chart ->
-        optimizeChartData(chart, reduceDataPoints = true, clearHistory = true)
-      }
+    if (log.isDebugEnabled) log.debug("Performing high chart cleanup")
+    forEachLiveChart { chart ->
+      optimizeChartData(chart, reduceDataPoints = true, clearHistory = true)
     }
   }
 
   override fun performCriticalCleanup() {
-    log.debug("Performing critical chart cleanup")
+    if (log.isDebugEnabled) log.debug("Performing critical chart cleanup")
 
-    // Maximum cleanup - disable charts if necessary
-    chartReferences.forEach { ref ->
-      ref.get()?.let { chart ->
-        if (isMemoryCritical()) {
-          disableChart(chart)
-        } else {
-          optimizeChartData(
-              chart,
-              reduceDataPoints = true,
-              clearHistory = true,
-              minimizeRendering = true,
-          )
-        }
+    // Compute memory state ONCE — Runtime queries are relatively expensive.
+    val critical = isMemoryCritical()
+
+    forEachLiveChart { chart ->
+      if (critical) {
+        disableChart(chart)
+      } else {
+        optimizeChartData(
+            chart,
+            reduceDataPoints = true,
+            clearHistory = true,
+            minimizeRendering = true,
+        )
       }
+    }
+  }
+
+  /**
+   * Iterates over live charts and prunes dead weak references in-place. Prevents the internal set
+   * from accumulating stale entries across the app lifetime.
+   */
+  private fun forEachLiveChart(action: (LineChart) -> Unit) {
+    val iterator = chartReferences.iterator()
+    while (iterator.hasNext()) {
+      val chart = iterator.next().get()
+      if (chart == null) {
+        iterator.remove()
+      } else {
+        action(chart)
+      }
+    }
+  }
+
+  /**
+   * MPAndroidChart must only be touched on the main thread. If we're already on main, execute
+   * synchronously to avoid extra latency; otherwise post to the main looper.
+   */
+  private fun runOnUi(block: () -> Unit) {
+    if (Looper.myLooper() == Looper.getMainLooper()) {
+      block()
+    } else {
+      mainHandler.post(block)
     }
   }
 
@@ -97,91 +132,121 @@ class ChartMemoryCleanupTask : MemoryManager.CleanupTask {
       clearHistory: Boolean = false,
       minimizeRendering: Boolean = false,
   ) {
-    try {
-      val data = chart.data as? LineData ?: return
+    runOnUi {
+      try {
+        val data = chart.data as? LineData ?: return@runOnUi
+        if (data.dataSets.isEmpty()) return@runOnUi
 
-      // Reduce data points by sampling
-      if (reduceDataPoints) {
         data.dataSets.forEach { dataSet ->
-          if (dataSet is LineDataSet && dataSet.entryCount > 10) {
-            val entries = dataSet.entries.toMutableList()
-            val sampledEntries = mutableListOf<Entry>()
+          if (dataSet !is LineDataSet) return@forEach
 
-            // Sample every other point to reduce memory
-            for (i in entries.indices step 2) {
-              sampledEntries.add(entries[i])
+          val entries = dataSet.values ?: return@forEach
+          val size = entries.size
+          if (size == 0) return@forEach
+
+          // Decide the replacement list — null means "no change needed".
+          val newValues: List<Entry>? =
+              when {
+                // Aggressive: keep only the newest N points.
+                clearHistory && size > HISTORY_KEEP -> {
+                  ArrayList(entries.subList(size - HISTORY_KEEP, size))
+                }
+
+                // Medium: stride-based downsampling. Always keeps the most recent sample.
+                reduceDataPoints && size > MIN_REDUCE_THRESHOLD -> {
+                  val step = (size / TARGET_POINTS).coerceAtLeast(2)
+                  val sampled = ArrayList<Entry>(size / step + 2)
+                  var i = 0
+                  while (i < size) {
+                    sampled.add(entries[i])
+                    i += step
+                  }
+                  // Ensure latest point is preserved (important for live charts).
+                  if (sampled.isEmpty() || sampled[sampled.size - 1] !== entries[size - 1]) {
+                    sampled.add(entries[size - 1])
+                  }
+                  sampled
+                }
+
+                else -> null
+              }
+
+          if (newValues != null) {
+            // Single atomic replace — MPAndroidChart's setValues() internally clears + repopulates.
+            dataSet.values = newValues
+          }
+        }
+
+        if (minimizeRendering) {
+          chart.setDrawGridBackground(false)
+          chart.setDrawBorders(false)
+          chart.description?.isEnabled = false
+          chart.legend?.isEnabled = false
+
+          data.dataSets.forEach { ds ->
+            if (ds is LineDataSet) {
+              ds.setDrawCircles(false)
+              ds.setDrawCircleHole(false)
+              ds.setDrawValues(false)
+              ds.setDrawIcons(false)
+              ds.lineWidth = 1f
             }
-
-            dataSet.clear()
-            dataSet.values = sampledEntries
           }
         }
+
+        chart.notifyDataSetChanged()
+        chart.invalidate()
+      } catch (e: Exception) {
+        // Never let cleanup crash the app — swallow and log.
+        log.error("Error optimizing chart data", e)
       }
-
-      // Clear old history data
-      if (clearHistory) {
-        data.dataSets.forEach { dataSet ->
-          if (dataSet is LineDataSet && dataSet.entryCount > 5) {
-            val entries = dataSet.entries.toMutableList()
-            // Keep only the last 5 entries
-            if (entries.size > 5) {
-              val recentEntries = entries.takeLast(5)
-              dataSet.clear()
-              dataSet.values = recentEntries
-            }
-          }
-        }
-      }
-
-      // Minimize rendering features
-      if (minimizeRendering) {
-        chart.setDrawGridBackground(false)
-        chart.setDrawBorders(false)
-        chart.description.isEnabled = false
-        chart.legend.isEnabled = false
-
-        data.dataSets.forEach { dataSet ->
-          if (dataSet is LineDataSet) {
-            dataSet.setDrawCircles(false)
-            dataSet.setDrawCircleHole(false)
-            dataSet.setDrawValues(false)
-            dataSet.setDrawIcons(false)
-            dataSet.formLineWidth = 1f
-          }
-        }
-      }
-
-      chart.notifyDataSetChanged()
-      chart.invalidate()
-    } catch (e: Exception) {
-      log.error("Error optimizing chart data", e)
     }
   }
 
   /** Disable chart to save memory. */
   private fun disableChart(chart: LineChart) {
-    try {
-      chart.clear()
-      chart.data = LineData()
-      chart.visibility = android.view.View.GONE
-      log.warn("Disabled chart due to critical memory pressure")
-    } catch (e: Exception) {
-      log.error("Error disabling chart", e)
+    runOnUi {
+      try {
+        chart.clear()
+        chart.data = LineData()
+        chart.visibility = View.GONE
+        if (log.isWarnEnabled) log.warn("Disabled chart due to critical memory pressure")
+      } catch (e: Exception) {
+        log.error("Error disabling chart", e)
+      }
     }
   }
 
-  /** Check if memory is critically low. */
+  /** Check if memory is critically low. Returns false if maxMemory is unknown/invalid. */
   private fun isMemoryCritical(): Boolean {
     val runtime = Runtime.getRuntime()
-    val usedMemory = runtime.totalMemory() - runtime.freeMemory()
-    val maxMemory = runtime.maxMemory()
-    val usedPercent = (usedMemory.toFloat() / maxMemory.toFloat() * 100).toInt()
+    val max = runtime.maxMemory()
+    if (max <= 0L) return false
 
-    return usedPercent >= 95 // 95% or higher is critical
+    val used = runtime.totalMemory() - runtime.freeMemory()
+    // Integer math — avoids float allocation and precision loss.
+    return used * 100L / max >= CRITICAL_THRESHOLD_PERCENT
   }
 
-  /** Clean up weak references to prevent memory leaks. */
+  /**
+   * Manual cleanup hook — retained for API compatibility. Dead references are also pruned
+   * automatically during iteration via [forEachLiveChart].
+   */
   fun cleanupWeakReferences() {
     chartReferences.removeAll { it.get() == null }
+  }
+
+  private companion object {
+    /** Number of most-recent entries to retain in HIGH cleanup. */
+    private const val HISTORY_KEEP = 5
+
+    /** Don't bother downsampling below this size — overhead not worth it. */
+    private const val MIN_REDUCE_THRESHOLD = 10
+
+    /** Target point count after MEDIUM downsampling. */
+    private const val TARGET_POINTS = 50
+
+    /** Used-heap percentage above which memory is treated as critical. */
+    private const val CRITICAL_THRESHOLD_PERCENT = 95L
   }
 }
