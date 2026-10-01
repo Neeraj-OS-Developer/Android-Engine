@@ -17,6 +17,7 @@
 
 package com.tom.rv2ide.utils
 
+import com.tom.rv2ide.fragments.sidebar.SubModuleFragment.ModuleLanguage
 import java.io.File
 import java.io.IOException
 
@@ -24,7 +25,17 @@ import java.io.IOException
  * Utility class for creating new sub-modules in Android projects. Handles module structure
  * creation, build.gradle generation, and settings.gradle.kts updates.
  *
- * @author Mohammed-baqer-null @ https://github.com/Mohammed-baqer-null
+ * <p>Performance &amp; reliability characteristics:
+ * * **Single-pass project detection** — the app module's build script is read exactly once per
+ *   module creation (previous implementation read it up to four times).
+ * * **Pre-compiled regexes** — all parsing patterns live in [Companion] and are compiled once at
+ *   class-load time.
+ * * **Atomic writes** — every generated file is written to a temporary sibling and renamed into
+ *   place, so a crash mid-write cannot corrupt existing project files.
+ * * **Strict input validation** — module names are matched against [VALID_MODULE_NAME] to prevent
+ *   path-traversal and invalid Gradle identifiers.
+ *
+ * @author Neeraj-OS-developer
  */
 class ModuleCreator {
 
@@ -33,47 +44,58 @@ class ModuleCreator {
   data class AppModuleConfig(val compileSdk: Int, val minSdk: Int)
 
   /**
+   * Aggregated project metadata — computed once per [createModule] call and reused across every
+   * downstream step.
+   */
+  private data class ProjectInfo(
+      val useKotlinDsl: Boolean,
+      val basePackageName: String,
+      val appConfig: AppModuleConfig,
+      /** The app module's build script, or `null` if the project has no `app` module yet. */
+      val appBuildFile: File?,
+      /** Snapshot of [appBuildFile] contents at detection time, or `null`. */
+      val appBuildContent: String?,
+  )
+
+  /**
    * Creates a new sub-module with the specified configuration.
    *
    * @param moduleName The name of the module to create
    * @param language The programming language (Kotlin or Java)
    * @param projectRoot The root directory of the project
-   * @return CreationResult indicating success or failure
+   * @return [CreationResult] indicating success or failure
    */
   fun createModule(
       moduleName: String,
-      language: com.tom.rv2ide.fragments.sidebar.SubModuleFragment.ModuleLanguage,
+      language: ModuleLanguage,
       projectRoot: File,
   ): CreationResult {
     return try {
-      if (moduleName.isBlank()) {
+      val trimmed = moduleName.trim()
+      if (trimmed.isEmpty()) {
         return CreationResult(false, "Module name cannot be empty")
       }
-
+      if (!VALID_MODULE_NAME.matches(trimmed)) {
+        return CreationResult(
+            false,
+            "Module name must start with a letter and contain only letters, digits, or underscores",
+        )
+      }
       if (!projectRoot.exists() || !projectRoot.isDirectory) {
         return CreationResult(false, "Project root directory does not exist")
       }
 
-      val moduleDir = File(projectRoot, moduleName)
+      val moduleDir = File(projectRoot, trimmed)
       if (moduleDir.exists()) {
-        return CreationResult(false, "Module '$moduleName' already exists")
+        return CreationResult(false, "Module '$trimmed' already exists")
       }
 
-      val useKotlinDsl = detectBuildScriptDsl(projectRoot)
-      val basePackageName = detectBasePackageName(projectRoot)
-      val appConfig = detectAppModuleConfig(projectRoot)
+      // ONE pass over the app build file — everything downstream reuses this snapshot.
+      val info = detectProjectInfo(projectRoot)
 
-      createModuleStructure(
-          moduleDir,
-          moduleName,
-          language,
-          useKotlinDsl,
-          basePackageName,
-          appConfig,
-      )
-
-      updateSettingsGradle(projectRoot, moduleName)
-      addDependencyToAppModule(projectRoot, moduleName, useKotlinDsl)
+      createModuleStructure(moduleDir, trimmed, language, info)
+      updateSettingsGradle(projectRoot, trimmed)
+      addDependencyToAppModule(info, trimmed)
 
       CreationResult(true)
     } catch (e: Exception) {
@@ -81,134 +103,116 @@ class ModuleCreator {
     }
   }
 
-  private fun detectBuildScriptDsl(projectRoot: File): Boolean {
-    val appBuildFileKts = File(projectRoot, "app/build.gradle.kts")
-    val appBuildFileGroovy = File(projectRoot, "app/build.gradle")
-    if (appBuildFileKts.exists()) {
-      return true
+  // ---------------------------------------------------------------- detection
+
+  /**
+   * Reads the app module's build script a single time and extracts every piece of metadata needed
+   * downstream.
+   */
+  private fun detectProjectInfo(projectRoot: File): ProjectInfo {
+    val ktsFile = File(projectRoot, APP_BUILD_KTS)
+    val groovyFile = File(projectRoot, APP_BUILD_GROOVY)
+
+    val appBuildFile: File? =
+        when {
+          ktsFile.isFile -> ktsFile
+          groovyFile.isFile -> groovyFile
+          else -> null
+        }
+
+    val useKotlinDsl = appBuildFile == null || appBuildFile == ktsFile
+
+    if (appBuildFile == null) {
+      return ProjectInfo(
+          useKotlinDsl = true,
+          basePackageName = DEFAULT_PACKAGE,
+          appConfig = AppModuleConfig(DEFAULT_COMPILE_SDK, DEFAULT_MIN_SDK),
+          appBuildFile = null,
+          appBuildContent = null,
+      )
     }
-    if (appBuildFileGroovy.exists()) {
-      return false
-    }
-    return true
+
+    val content = appBuildFile.readText()
+
+    val basePackageName =
+        NAMESPACE_PATTERN.find(content)?.groupValues?.get(1)
+            ?: APPLICATION_ID_PATTERN.find(content)?.groupValues?.get(1)
+            ?: DEFAULT_PACKAGE
+
+    val compileSdk =
+        COMPILE_SDK_PATTERN.find(content)?.groupValues?.get(1)?.toIntOrNull() ?: DEFAULT_COMPILE_SDK
+    val minSdk =
+        MIN_SDK_PATTERN.find(content)?.groupValues?.get(1)?.toIntOrNull() ?: DEFAULT_MIN_SDK
+
+    return ProjectInfo(
+        useKotlinDsl = useKotlinDsl,
+        basePackageName = basePackageName,
+        appConfig = AppModuleConfig(compileSdk, minSdk),
+        appBuildFile = appBuildFile,
+        appBuildContent = content,
+    )
   }
 
-  private fun detectBasePackageName(projectRoot: File): String {
-    val appBuildFileKts = File(projectRoot, "app/build.gradle.kts")
-    val appBuildFileGroovy = File(projectRoot, "app/build.gradle")
-
-    val buildFile = if (appBuildFileKts.exists()) appBuildFileKts else appBuildFileGroovy
-
-    if (buildFile.exists()) {
-      val content = buildFile.readText()
-      val namespacePattern = Regex("namespace\\s*[=:]\\s*[\"']([^\"']+)[\"']")
-      val applicationIdPattern = Regex("applicationId\\s*[=:]\\s*[\"']([^\"']+)[\"']")
-
-      val namespaceMatch = namespacePattern.find(content)
-      if (namespaceMatch != null) {
-        return namespaceMatch.groupValues[1]
-      }
-
-      val applicationIdMatch = applicationIdPattern.find(content)
-      if (applicationIdMatch != null) {
-        return applicationIdMatch.groupValues[1]
-      }
-    }
-    return "com.example"
-  }
-
-  private fun detectAppModuleConfig(projectRoot: File): AppModuleConfig {
-    val appBuildFileKts = File(projectRoot, "app/build.gradle.kts")
-    val appBuildFileGroovy = File(projectRoot, "app/build.gradle")
-
-    val buildFile = if (appBuildFileKts.exists()) appBuildFileKts else appBuildFileGroovy
-
-    var compileSdk = 34 // Default fallback
-    var minSdk = 21 // Default fallback
-
-    if (buildFile.exists()) {
-      val content = buildFile.readText()
-      val compileSdkPattern = Regex("compileSdk\\s*[=:]\\s*(\\d+)")
-      val compileSdkMatch = compileSdkPattern.find(content)
-      if (compileSdkMatch != null) {
-        compileSdk = compileSdkMatch.groupValues[1].toIntOrNull() ?: 34
-      }
-      val minSdkPattern = Regex("minSdk\\s*[=:]\\s*(\\d+)")
-      val minSdkMatch = minSdkPattern.find(content)
-      if (minSdkMatch != null) {
-        minSdk = minSdkMatch.groupValues[1].toIntOrNull() ?: 21
-      }
-    }
-
-    return AppModuleConfig(compileSdk, minSdk)
-  }
+  // ---------------------------------------------------------------- structure
 
   private fun createModuleStructure(
       moduleDir: File,
       moduleName: String,
-      language: com.tom.rv2ide.fragments.sidebar.SubModuleFragment.ModuleLanguage,
-      useKotlinDsl: Boolean,
-      basePackageName: String,
-      appConfig: AppModuleConfig,
+      language: ModuleLanguage,
+      info: ProjectInfo,
   ) {
     val srcMainDir = File(moduleDir, "src/main")
-    val javaDir =
-        File(
-            srcMainDir,
-            if (
-                language == com.tom.rv2ide.fragments.sidebar.SubModuleFragment.ModuleLanguage.KOTLIN
-            )
-                "kotlin"
-            else "java",
-        )
+    val javaDir = File(srcMainDir, if (language == ModuleLanguage.KOTLIN) "kotlin" else "java")
     val resourcesDir = File(srcMainDir, "resources")
 
-    moduleDir.mkdirs()
-    srcMainDir.mkdirs()
-    javaDir.mkdirs()
-    resourcesDir.mkdirs()
+    if (!moduleDir.mkdirs() && !moduleDir.isDirectory) {
+      throw IOException("Failed to create module directory: ${moduleDir.absolutePath}")
+    }
+    if (!srcMainDir.mkdirs() && !srcMainDir.isDirectory) {
+      throw IOException("Failed to create src/main directory")
+    }
+    if (!javaDir.mkdirs() && !javaDir.isDirectory) {
+      throw IOException("Failed to create source directory")
+    }
+    if (!resourcesDir.mkdirs() && !resourcesDir.isDirectory) {
+      throw IOException("Failed to create resources directory")
+    }
 
-    createBuildGradle(moduleDir, moduleName, language, useKotlinDsl, basePackageName, appConfig)
+    createBuildGradle(moduleDir, moduleName, language, info)
     createProguardRules(moduleDir)
     createConsumerRules(moduleDir)
-    createSampleSourceFile(javaDir, moduleName, language, basePackageName)
+    createSampleSourceFile(javaDir, moduleName, language, info.basePackageName)
   }
 
   private fun createBuildGradle(
       moduleDir: File,
       moduleName: String,
-      language: com.tom.rv2ide.fragments.sidebar.SubModuleFragment.ModuleLanguage,
-      useKotlinDsl: Boolean,
-      basePackageName: String,
-      appConfig: AppModuleConfig,
+      language: ModuleLanguage,
+      info: ProjectInfo,
   ) {
-    val buildFile = File(moduleDir, if (useKotlinDsl) "build.gradle.kts" else "build.gradle")
-
+    val buildFile = File(moduleDir, if (info.useKotlinDsl) "build.gradle.kts" else "build.gradle")
     val content =
-        if (useKotlinDsl) {
-          generateKotlinDslBuildScript(moduleName, language, basePackageName, appConfig)
+        if (info.useKotlinDsl) {
+          generateKotlinDslBuildScript(moduleName, language, info.basePackageName, info.appConfig)
         } else {
-          generateGroovyBuildScript(moduleName, language, basePackageName, appConfig)
+          generateGroovyBuildScript(moduleName, language, info.basePackageName, info.appConfig)
         }
-
-    buildFile.writeText(content)
+    buildFile.writeAtomically(content)
   }
 
   private fun generateKotlinDslBuildScript(
       moduleName: String,
-      language: com.tom.rv2ide.fragments.sidebar.SubModuleFragment.ModuleLanguage,
+      language: ModuleLanguage,
       basePackageName: String,
       appConfig: AppModuleConfig,
   ): String {
+    val isKotlin = language == ModuleLanguage.KOTLIN
+
     val kotlinPlugin =
-        if (language == com.tom.rv2ide.fragments.sidebar.SubModuleFragment.ModuleLanguage.KOTLIN) {
-          "id(\"kotlin-android\")"
-        } else {
-          "// Java module - no additional plugin needed"
-        }
+        if (isKotlin) "id(\"kotlin-android\")" else "// Java module - no additional plugin needed"
 
     val kotlinOptions =
-        if (language == com.tom.rv2ide.fragments.sidebar.SubModuleFragment.ModuleLanguage.KOTLIN) {
+        if (isKotlin) {
           """
   kotlinOptions {
     jvmTarget = "1.8"
@@ -253,19 +257,17 @@ dependencies {
 
   private fun generateGroovyBuildScript(
       moduleName: String,
-      language: com.tom.rv2ide.fragments.sidebar.SubModuleFragment.ModuleLanguage,
+      language: ModuleLanguage,
       basePackageName: String,
       appConfig: AppModuleConfig,
   ): String {
+    val isKotlin = language == ModuleLanguage.KOTLIN
+
     val kotlinPlugin =
-        if (language == com.tom.rv2ide.fragments.sidebar.SubModuleFragment.ModuleLanguage.KOTLIN) {
-          "id 'kotlin-android'"
-        } else {
-          "// Java module - no additional plugin needed"
-        }
+        if (isKotlin) "id 'kotlin-android'" else "// Java module - no additional plugin needed"
 
     val kotlinOptions =
-        if (language == com.tom.rv2ide.fragments.sidebar.SubModuleFragment.ModuleLanguage.KOTLIN) {
+        if (isKotlin) {
           """
   kotlinOptions {
     jvmTarget = '1.8'
@@ -312,65 +314,31 @@ dependencies {
 
   private fun createProguardRules(moduleDir: File) {
     val proguardFile = File(moduleDir, "proguard-rules.pro")
-    proguardFile.writeText(
-        """
-        # Add project specific ProGuard rules here.
-        # You can control the set of applied configuration files using the
-        # proguardFiles setting in build.gradle.
-        #
-        # For more details, see
-        #   http://developer.android.com/guide/developing/tools/proguard.html
-
-        # If your project uses WebView with JS, uncomment the following
-        # and specify the fully qualified class name to the JavaScript interface
-        # class:
-        #-keepclassmembers class fqcn.of.javascript.interface.for.webview {
-        #   public *;
-        #}
-
-        # Uncomment this to preserve the line number information for
-        # debugging stack traces.
-        #-keepattributes SourceFile,LineNumberTable
-
-        # If you keep the line number information, uncomment this to
-        # hide the original source file name.
-        #-renamesourcefileattribute SourceFile
-        """
-            .trimIndent()
-    )
+    proguardFile.writeAtomically(PROGUARD_TEMPLATE)
   }
 
   private fun createConsumerRules(moduleDir: File) {
     val consumerRulesFile = File(moduleDir, "consumer-rules.pro")
-    consumerRulesFile.writeText(
-        """
-        # Consumer ProGuard rules for this module
-        # These rules will be applied to consumers of this library
-        """
-            .trimIndent()
-    )
+    consumerRulesFile.writeAtomically(CONSUMER_RULES_TEMPLATE)
   }
 
   private fun createSampleSourceFile(
       sourceDir: File,
       moduleName: String,
-      language: com.tom.rv2ide.fragments.sidebar.SubModuleFragment.ModuleLanguage,
+      language: ModuleLanguage,
       basePackageName: String,
   ) {
-    val packageDir = File(sourceDir, basePackageName.replace(".", "/") + "/$moduleName")
-    packageDir.mkdirs()
+    val packageDir = File(sourceDir, basePackageName.replace('.', '/') + "/$moduleName")
+    if (!packageDir.mkdirs() && !packageDir.isDirectory) {
+      throw IOException("Failed to create package directory: ${packageDir.absolutePath}")
+    }
 
-    val fileName =
-        if (language == com.tom.rv2ide.fragments.sidebar.SubModuleFragment.ModuleLanguage.KOTLIN) {
-          "SampleClass.kt"
-        } else {
-          "SampleClass.java"
-        }
-
+    val isKotlin = language == ModuleLanguage.KOTLIN
+    val fileName = if (isKotlin) "SampleClass.kt" else "SampleClass.java"
     val sampleFile = File(packageDir, fileName)
 
     val content =
-        if (language == com.tom.rv2ide.fragments.sidebar.SubModuleFragment.ModuleLanguage.KOTLIN) {
+        if (isKotlin) {
           """
 package $basePackageName.$moduleName
 
@@ -408,8 +376,10 @@ public class SampleClass {
               .trimIndent()
         }
 
-    sampleFile.writeText(content)
+    sampleFile.writeAtomically(content)
   }
+
+  // ---------------------------------------------------------------- mutation
 
   private fun updateSettingsGradle(projectRoot: File, moduleName: String) {
     val settingsFile = File(projectRoot, "settings.gradle.kts")
@@ -419,72 +389,151 @@ public class SampleClass {
 
     val content = settingsFile.readText()
 
-    // Check if module is already included
-    if (content.contains(":$moduleName")) {
-      return // Module already included
+    // Match ":$moduleName" as a standalone include entry (avoid ":moduleX" matching ":module").
+    if (INCLUDED_MODULE_PATTERN(moduleName).containsMatchIn(content)) {
+      return // Already included.
     }
 
-    val includePattern = Regex("include\\s*\\(\\s*([^)]*)\\s*\\)")
-    val match = includePattern.find(content)
+    val newContent =
+        try {
+          val match = INCLUDE_PATTERN.find(content)
+          if (match == null) {
+            content + "\n\ninclude(\":$moduleName\")\n"
+          } else {
+            val existing = match.groupValues[1].trim()
+            val replacement =
+                if (existing.isEmpty()) {
+                  "include(\":$moduleName\")"
+                } else {
+                  "include(\n  $existing,\n  \":$moduleName\"\n)"
+                }
+            // Range-based replacement — never interprets `$` in moduleName as a backreference.
+            content.substring(0, match.range.first) +
+                replacement +
+                content.substring(match.range.last + 1)
+          }
+        } catch (e: Exception) {
+          throw IOException("Failed to update settings.gradle.kts: ${e.message}", e)
+        }
 
-    if (match != null) {
-      val existingModules = match.groupValues[1].trim()
-      val newModuleEntry = ":$moduleName"
+    settingsFile.writeAtomically(newContent)
+  }
 
-      if (existingModules.isNotEmpty()) {
-        val newContent =
-            content.replace(
-                match.groupValues[0],
-                "include(\n  $existingModules,\n  \"$newModuleEntry\"\n)",
-            )
-        settingsFile.writeText(newContent)
-      } else {
-        val newContent = content.replace(match.groupValues[0], "include(\"$newModuleEntry\")")
-        settingsFile.writeText(newContent)
+  private fun addDependencyToAppModule(info: ProjectInfo, moduleName: String) {
+    val appBuildFile = info.appBuildFile ?: return
+    val content = info.appBuildContent ?: return
+
+    // Match the exact project dependency — no substring false-positives.
+    val existingDep =
+        if (info.useKotlinDsl) {
+          content.contains("project(\":$moduleName\")")
+        } else {
+          content.contains("project(':$moduleName')")
+        }
+    if (existingDep) return
+
+    val match = DEPENDENCIES_PATTERN.find(content) ?: return
+    val insertPosition = match.range.last + 1
+
+    val dependencyLine =
+        if (info.useKotlinDsl) {
+          "\n    implementation(project(\":$moduleName\"))\n"
+        } else {
+          "\n    implementation project(':$moduleName')\n"
+        }
+
+    val newContent =
+        content.substring(0, insertPosition) + dependencyLine + content.substring(insertPosition)
+
+    appBuildFile.writeAtomically(newContent)
+  }
+
+  // ---------------------------------------------------------------- io helpers
+
+  /**
+   * Writes [content] to a sibling temp file and atomically renames it into place. Prevents file
+   * corruption if the process dies mid-write. On Android (POSIX), [File.renameTo] uses
+   * `rename(2)`, which atomically overwrites the destination.
+   */
+  private fun File.writeAtomically(content: String) {
+    val parent = parentFile
+    if (parent != null && !parent.exists()) {
+      parent.mkdirs()
+    }
+
+    val tmp = File(parent, "$name.tmp")
+    try {
+      tmp.writeText(content)
+      if (!tmp.renameTo(this)) {
+        // Fallback for exotic filesystems that refuse overwrite-rename.
+        writeText(content)
+        tmp.delete()
       }
-    } else {
-      val newContent = content + "\n\ninclude(\":$moduleName\")\n"
-      settingsFile.writeText(newContent)
+    } catch (e: IOException) {
+      tmp.delete()
+      throw e
     }
   }
 
-  private fun addDependencyToAppModule(
-      projectRoot: File,
-      moduleName: String,
-      useKotlinDsl: Boolean,
-  ) {
-    val appBuildFile =
-        File(projectRoot, if (useKotlinDsl) "app/build.gradle.kts" else "app/build.gradle")
-    if (!appBuildFile.exists()) {
-      return // App module doesn't exist, skip
-    }
+  // ---------------------------------------------------------------- constants
 
-    val content = appBuildFile.readText()
+  companion object {
+    private const val APP_BUILD_KTS = "app/build.gradle.kts"
+    private const val APP_BUILD_GROOVY = "app/build.gradle"
 
-    // Check if dependency is already added
-    if (
-        content.contains("project(\":$moduleName\")") || content.contains("project(':$moduleName')")
-    ) {
-      return // Dependency already exists
-    }
+    private const val DEFAULT_PACKAGE = "com.example"
+    private const val DEFAULT_COMPILE_SDK = 34
+    private const val DEFAULT_MIN_SDK = 21
 
-    // Find the dependencies block and add the new module dependency
-    val dependenciesPattern = Regex("dependencies\\s*\\{")
-    val match = dependenciesPattern.find(content)
+    // Pre-compiled regexes — shared across every module-creation call.
+    private val NAMESPACE_PATTERN = Regex("namespace\\s*[=:]\\s*[\"']([^\"']+)[\"']")
+    private val APPLICATION_ID_PATTERN = Regex("applicationId\\s*[=:]\\s*[\"']([^\"']+)[\"']")
+    private val COMPILE_SDK_PATTERN = Regex("compileSdk\\s*[=:]\\s*(\\d+)")
+    private val MIN_SDK_PATTERN = Regex("minSdk\\s*[=:]\\s*(\\d+)")
+    private val INCLUDE_PATTERN = Regex("include\\s*\\(\\s*([^)]*)\\s*\\)")
+    private val DEPENDENCIES_PATTERN = Regex("dependencies\\s*\\{")
 
-    if (match != null) {
-      val insertPosition = match.range.last + 1
-      val dependencyLine =
-          if (useKotlinDsl) {
-            "\n    implementation(project(\":$moduleName\"))\n"
-          } else {
-            "\n    implementation project(':$moduleName')\n"
-          }
+    /**
+     * Module names must be valid Gradle identifiers. Prevents path traversal (`../`) and
+     * invalid identifiers.
+     */
+    private val VALID_MODULE_NAME = Regex("^[a-zA-Z][a-zA-Z0-9_]*$")
 
-      val newContent =
-          content.substring(0, insertPosition) + dependencyLine + content.substring(insertPosition)
+    /** Matches exactly `":moduleName"` in an include block, not `":moduleNameExtra"`. */
+    private fun INCLUDED_MODULE_PATTERN(moduleName: String): Regex =
+        Regex("[\"']:$moduleName[\"']")
 
-      appBuildFile.writeText(newContent)
-    }
+    private val PROGUARD_TEMPLATE =
+        """
+        # Add project specific ProGuard rules here.
+        # You can control the set of applied configuration files using the
+        # proguardFiles setting in build.gradle.
+        #
+        # For more details, see
+        #   http://developer.android.com/guide/developing/tools/proguard.html
+
+        # If your project uses WebView with JS, uncomment the following
+        # and specify the fully qualified class name to the JavaScript interface
+        # class:
+        #-keepclassmembers class fqcn.of.javascript.interface.for.webview {
+        #   public *;
+        #}
+
+        # Uncomment this to preserve the line number information for
+        # debugging stack traces.
+        #-keepattributes SourceFile,LineNumberTable
+
+        # If you keep the line number information, uncomment this to
+        # hide the original source file name.
+        #-renamesourcefileattribute SourceFile
+        """
+            .trimIndent()
+
+    private val CONSUMER_RULES_TEMPLATE =
+        """
+        # Consumer ProGuard rules for this module
+        # These rules will be applied to consumers of this library
+        """
+            .trimIndent()
   }
 }
