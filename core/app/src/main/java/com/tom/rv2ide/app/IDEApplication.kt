@@ -59,10 +59,10 @@ import com.tom.rv2ide.ui.themes.IThemeManager
 import com.tom.rv2ide.utils.ChartMemoryCleanupTask
 import com.tom.rv2ide.utils.Environment
 import com.tom.rv2ide.utils.MemoryManager
-import com.tom.rv2ide.utils.MemoryProfiler
 import com.tom.rv2ide.utils.RecyclableObjectPool
 import com.tom.rv2ide.utils.VMUtils
 import com.tom.rv2ide.utils.flashError
+import com.tom.rv2ide.utils.MemoryProfiler
 import io.github.mohammedbaqernull.seasonal.SeasonalEffects
 import io.github.miyazkaori.silentinstaller.SilentInstaller
 import io.github.rosemoe.sora.widget.schemes.EditorColorScheme
@@ -73,10 +73,8 @@ import java.io.FileOutputStream
 import java.lang.Thread.UncaughtExceptionHandler
 import java.time.Duration
 import java.time.LocalDate
-import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.system.exitProcess
 import kotlinx.coroutines.DelicateCoroutinesApi
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
 import org.greenrobot.eventbus.EventBus
@@ -92,9 +90,6 @@ class IDEApplication : TermuxApplication() {
   private var chartCleanupTask: ChartMemoryCleanupTask? = null
   private var memoryProfiler: MemoryProfiler? = null
 
-  /** Guard so asset extraction / native init never runs twice. */
-  private val assetsExtracted = AtomicBoolean(false)
-
   init {
     RecyclableObjectPool.DEBUG = BuildConfig.DEBUG
   }
@@ -102,57 +97,41 @@ class IDEApplication : TermuxApplication() {
   override fun attachBaseContext(base: Context) {
     super.attachBaseContext(base)
 
-    // Silent installer must be initialised before any Application-level logic.
-    runCatching { SilentInstaller.init(this) }
-        .onFailure { log.error("Failed to init SilentInstaller", it) }
-
-    // Native TreeSitter must be loaded after base context is attached.
+    SilentInstaller.init(this)
+    // Load native libraries after base context is attached
     if (!VMUtils.isJvm()) {
-      runCatching { TreeSitter.loadLibrary() }
-          .onFailure { log.error("Failed to load TreeSitter library", it) }
+      try {
+        TreeSitter.loadLibrary()
+      } catch (e: Throwable) {
+        log.error("Failed to load TreeSitter library", e)
+      }
     }
   }
 
   @OptIn(DelicateCoroutinesApi::class)
   override fun onCreate() {
     instance = this
-
-    // Preserve the platform default handler so we can chain to it on crash.
     uncaughtExceptionHandler = Thread.getDefaultUncaughtExceptionHandler()
     Thread.setDefaultUncaughtExceptionHandler { thread, th -> handleCrash(thread, th) }
 
     super.onCreate()
 
-    // --- Seasonal overlay (cheap, avoid work when disabled) ---
     if (GeneralPreferences.snowfallOverlay && isSnowfallSeasonActive()) {
-      runCatching {
-            SeasonalEffects.init(this)
-            SeasonalEffects.enableChristmas()
-            SeasonalEffects.setSnowflakeCount(20)
-          }
-          .onFailure { log.error("Failed to initialise seasonal effects", it) }
+      SeasonalEffects.init(this)
+      SeasonalEffects.enableChristmas()
+      SeasonalEffects.setSnowflakeCount(20)
     }
 
-    // --- Debug-only diagnostics ---
     if (BuildConfig.DEBUG) {
-      runCatching {
-            StrictMode.setVmPolicy(
-                StrictMode.VmPolicy.Builder(StrictMode.getVmPolicy())
-                    .penaltyLog()
-                    .detectAll()
-                    .build()
-            )
-          }
-          .onFailure { log.warn("Failed to install StrictMode VmPolicy", it) }
-
+      StrictMode.setVmPolicy(
+          StrictMode.VmPolicy.Builder(StrictMode.getVmPolicy()).penaltyLog().detectAll().build()
+      )
       if (DevOpsPreferences.dumpLogs) {
         startLogcatReader()
       }
-      // Memory profiler is opt-in; enabling it in production causes jank.
-      // if (DevOpsPreferences.enableMemoryProfiler) initializeMemoryProfiler()
+      // initializeMemoryProfiler()
     }
 
-    // --- EventBus ---
     EventBus.builder()
         .addIndex(AppEventsIndex())
         .addIndex(EditorEventsIndex())
@@ -162,7 +141,6 @@ class IDEApplication : TermuxApplication() {
 
     EventBus.getDefault().register(this)
 
-    // --- UI / theme ---
     AppCompatDelegate.setDefaultNightMode(GeneralPreferences.uiMode)
 
     if (IThemeManager.getInstance().getCurrentTheme() == IDETheme.MATERIAL_YOU) {
@@ -172,87 +150,38 @@ class IDEApplication : TermuxApplication() {
     EditorColorScheme.setDefault(SchemeAndroidIDE.newInstance(null))
 
     ReflectionUtils.bypassHiddenAPIReflectionRestrictions()
-    GlobalScope.launch(Dispatchers.Default) { IDEColorSchemeProvider.init() }
+    GlobalScope.launch { IDEColorSchemeProvider.init() }
 
-    // --- One-time asset extraction (non-blocking) ---
-    GlobalScope.launch(Dispatchers.IO) { extractBundledAssetsOnce() }
-
-    // --- Optional subsystems (disabled by default) ---
+    // Initialize memory management
     // initializeMemoryManagement()
+    extractLoggerRuntime()
+    extractJetbrainsMono()
 
     // DISABLED: Plugin system completely disabled to prevent Tooling API issues
     // initializePluginSystem()
   }
 
   /**
-   * Extract bundled assets only once per process.
-   * Both targets are skipped when a non-empty file already exists, which avoids
-   * redundant disk writes on every cold start.
-   */
-  private fun extractBundledAssetsOnce() {
-    if (!assetsExtracted.compareAndSet(false, true)) return
-
-    extractAssetIfMissing(
-        assetPath = "fonts/jetbrains-mono.ttf",
-        target = File(File(Environment.HOME, ".androidide/ui"), "jetbrains-mono.ttf"),
-    )
-
-    extractAssetIfMissing(
-        assetPath = "logger-runtime.aar",
-        target = File(File(Environment.HOME, "plugins/logger"), "logger-runtime.aar"),
-    )
-  }
-
-  private fun extractAssetIfMissing(assetPath: String, target: File) {
-    try {
-      if (target.exists() && target.length() > 0L) {
-        log.debug("Asset already extracted, skipping: {}", target.absolutePath)
-        return
-      }
-
-      target.parentFile?.let { if (!it.exists() && !it.mkdirs()) {
-        log.warn("Failed to create directory: {}", it.absolutePath)
-      } }
-
-      assets.open(assetPath).use { input ->
-        BufferedInputStream(input).use { bufferedIn ->
-          FileOutputStream(target).use { fileOut ->
-            BufferedOutputStream(fileOut).use { bufferedOut ->
-              bufferedIn.copyTo(bufferedOut, DEFAULT_BUFFER_SIZE)
-            }
-          }
-        }
-      }
-
-      log.info("Extracted {} -> {}", assetPath, target.absolutePath)
-    } catch (e: Exception) {
-      log.error("Failed to extract asset: {}", assetPath, e)
-    }
-  }
-
-  /**
-   * Snowfall is active until (and including) January 5, 2026.
-   * Uses a single `LocalDate.now()` read to avoid repeated syscalls.
+   * Check if the snowfall season is currently active.
+   * Snowfall is active until January 5, 2026.
    */
   private fun isSnowfallSeasonActive(): Boolean {
-    val today = LocalDate.now()
+    val currentDate = LocalDate.now()
     val endDate = LocalDate.of(2026, 1, 5)
-    return !today.isAfter(endDate)
+    return !currentDate.isAfter(endDate)
   }
 
   fun showChangelog() {
-    val version =
-        BuildInfo.VERSION_NAME_SIMPLE.let { if (it.startsWith("v")) it else "v$it" }
-
-    val intent =
-        Intent(Intent.ACTION_VIEW).apply {
-          data =
-              Uri.parse(
-                  "https://github.com/Neeraj-OS-Developer/android-code-studio/releases/tag/$version"
-              )
-          addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-
+    val intent = Intent(Intent.ACTION_VIEW)
+    var version = BuildInfo.VERSION_NAME_SIMPLE
+    if (!version.startsWith('v')) {
+      version = "v${version}"
+    }
+    intent.data =
+        Uri.parse(
+            "https://github.com/Neeraj-OS-Developer/android-code-studio/releases/tag/${version}"
+        )
+    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     try {
       startActivity(intent)
     } catch (th: Throwable) {
@@ -262,14 +191,13 @@ class IDEApplication : TermuxApplication() {
   }
 
   fun reportStatsIfNecessary() {
+
     if (!StatPreferences.statOptIn) {
       log.info("Stat collection is disabled.")
       return
     }
 
-    val constraints =
-        Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
-
+    val constraints = Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
     val request =
         PeriodicWorkRequestBuilder<StatUploadWorker>(Duration.ofHours(24))
             .setInputData(AndroidIDEStats.statData.toInputData())
@@ -299,65 +227,103 @@ class IDEApplication : TermuxApplication() {
 
   @Subscribe(threadMode = ThreadMode.MAIN)
   fun onPrefChanged(event: PreferenceChangeEvent) {
-    when (event.key) {
-      GeneralPreferences.UI_MODE -> {
-        if (GeneralPreferences.uiMode != AppCompatDelegate.getDefaultNightMode()) {
-          AppCompatDelegate.setDefaultNightMode(GeneralPreferences.uiMode)
-        }
+    if (event.key == GeneralPreferences.UI_MODE) {
+      if (GeneralPreferences.uiMode != AppCompatDelegate.getDefaultNightMode()) {
+        AppCompatDelegate.setDefaultNightMode(GeneralPreferences.uiMode)
       }
-      GeneralPreferences.SELECTED_LOCALE -> {
-        // Use empty locale list if the locale has been reset to 'System Default'.
-        val selectedLocale = GeneralPreferences.selectedLocale
-        val localeListCompat =
-            selectedLocale
-                ?.let { LocaleListCompat.create(LocaleProvider.getLocale(it)) }
-                ?: LocaleListCompat.getEmptyLocaleList()
+    } else if (event.key == GeneralPreferences.SELECTED_LOCALE) {
 
-        AppCompatDelegate.setApplicationLocales(localeListCompat)
+      // Use empty locale list if the locale has been reset to 'System Default'
+      val selectedLocale = GeneralPreferences.selectedLocale
+      val localeListCompat =
+          selectedLocale?.let { LocaleListCompat.create(LocaleProvider.getLocale(selectedLocale)) }
+              ?: LocaleListCompat.getEmptyLocaleList()
+
+      AppCompatDelegate.setApplicationLocales(localeListCompat)
+    }
+  }
+
+  private fun extractJetbrainsMono() {
+    try {
+      val fontsDir = File(Environment.HOME, ".androidide/ui")
+
+      if (!fontsDir.exists()) {
+        fontsDir.mkdirs()
       }
-      StatPreferences.KEY_STAT_OPT_IN -> {
-        val enabled = event.value as? Boolean ?: StatPreferences.statOptIn
-        if (enabled) {
-          reportStatsIfNecessary()
-        } else {
-          cancelStatUploadWorker()
+      val targetFont = File(fontsDir, "jetbrains-mono.ttf")
+
+      // Skip re-extraction if already present (speeds up cold start)
+      if (targetFont.exists() && targetFont.length() > 0L) {
+        return
+      }
+
+      assets.open("fonts/jetbrains-mono.ttf").use { input ->
+        BufferedInputStream(input).use { bufferedInput ->
+          FileOutputStream(targetFont).use { output ->
+            BufferedOutputStream(output).use { bufferedOutput ->
+              bufferedInput.copyTo(bufferedOutput)
+            }
+          }
         }
       }
-      GeneralPreferences.SNOWFALL_OVERLAY -> {
-        val enabled = event.value as? Boolean ?: false
-        if (enabled && isSnowfallSeasonActive()) {
-          runCatching {
-                SeasonalEffects.init(this)
-                SeasonalEffects.enableChristmas()
-                SeasonalEffects.setSnowflakeCount(20)
-              }
-              .onFailure { log.error("Failed to enable seasonal effects", it) }
+    } catch (e: Exception) {
+      log.error("Failed to extract jetbrains-mono.ttf font", e)
+    }
+  }
+
+  private fun extractLoggerRuntime() {
+    try {
+      val pluginsDir = File(Environment.HOME, "plugins/logger")
+
+      if (!pluginsDir.exists()) {
+        pluginsDir.mkdirs()
+        log.info("Created directory: ${pluginsDir.absolutePath}")
+      }
+
+      val targetFile = File(pluginsDir, "logger-runtime.aar")
+
+      // Skip re-extraction if already present (speeds up cold start)
+      if (targetFile.exists() && targetFile.length() > 0L) {
+        return
+      }
+
+      assets.open("logger-runtime.aar").use { input ->
+        BufferedInputStream(input).use { bufferedInput ->
+          FileOutputStream(targetFile).use { output ->
+            BufferedOutputStream(output).use { bufferedOutput ->
+              bufferedInput.copyTo(bufferedOutput)
+            }
+          }
         }
       }
+
+      log.info("Successfully extracted logger-runtime.aar to: ${targetFile.absolutePath}")
+    } catch (e: Exception) {
+      log.error("Failed to extract logger-runtime.aar", e)
     }
   }
 
   private fun handleCrash(thread: Thread, th: Throwable) {
-    try {
-      val intent =
-          Intent()
-              .setAction(CrashHandlerActivity.REPORT_ACTION)
-              .putExtra(CrashHandlerActivity.TRACE_KEY, getFullStackTrace(th))
-              .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    // writeException(th)
 
+    try {
+      val intent = Intent()
+      intent.action = CrashHandlerActivity.REPORT_ACTION
+      intent.putExtra(CrashHandlerActivity.TRACE_KEY, getFullStackTrace(th))
+      intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
       startActivity(intent)
 
-      // Chain to the previously installed handler (e.g. Termux / Firebase).
       uncaughtExceptionHandler?.uncaughtException(thread, th)
 
       exitProcess(1)
     } catch (error: Throwable) {
-      Log.e(TAG, "Unable to show crash handler activity", error)
-      // Fall back to the original handler rather than swallowing the crash.
+      Log.e("IDEApplication", "Unable to show crash handler activity", error)
+
+      // Last resort: chain to previous handler so the crash isn't silently swallowed
       try {
         uncaughtExceptionHandler?.uncaughtException(thread, th)
       } catch (_: Throwable) {
-        // Last resort — kill the process.
+        // ignored
       }
       exitProcess(1)
     }
@@ -367,7 +333,6 @@ class IDEApplication : TermuxApplication() {
     log.info("Opted-out of stat collection. Cancelling StatUploadWorker if enqueued...")
     val operation =
         WorkManager.getInstance(this).cancelUniqueWork(StatUploadWorker.WORKER_WORK_NAME)
-
     operation.state.observeForever(
         object : Observer<Operation.State> {
           override fun onChanged(value: Operation.State) {
@@ -379,21 +344,22 @@ class IDEApplication : TermuxApplication() {
   }
 
   private fun startLogcatReader() {
-    if (ideLogcatReader != null) return // already started
+    if (ideLogcatReader != null) {
+      // already started
+      return
+    }
 
     log.info("Starting logcat reader...")
     ideLogcatReader = IDELogcatReader().also { it.start() }
   }
 
   private fun stopLogcatReader() {
-    if (ideLogcatReader == null) return
-
     log.info("Stopping logcat reader...")
     ideLogcatReader?.stop()
     ideLogcatReader = null
   }
 
-  /** Initialize memory management system (opt-in). */
+  /** Initialize memory management system. RE-ENABLED with fixes for Tooling API compatibility. */
   private fun initializeMemoryManagement() {
     try {
       memoryManager = MemoryManager.getInstance(this)
@@ -405,34 +371,37 @@ class IDEApplication : TermuxApplication() {
       // Start memory monitoring with reduced frequency to avoid Tooling API conflicts
       memoryManager?.startMonitoring()
 
-      Log.i(TAG, "Memory management system initialized with Tooling API compatibility")
+      Log.i("IDEApplication", "Memory management system initialized with Tooling API compatibility")
     } catch (e: Exception) {
-      Log.e(TAG, "Failed to initialize memory management", e)
+      Log.e("IDEApplication", "Failed to initialize memory management", e)
     }
   }
 
   /** Get the chart cleanup task for registering charts. */
-  fun getChartCleanupTask(): ChartMemoryCleanupTask? = chartCleanupTask
+  fun getChartCleanupTask(): ChartMemoryCleanupTask? {
+    return chartCleanupTask
+  }
 
   /** Get the memory manager instance. */
-  fun getMemoryManager(): MemoryManager? = memoryManager
+  fun getMemoryManager(): MemoryManager? {
+    return memoryManager
+  }
 
   private fun initializeMemoryProfiler() {
     try {
       memoryProfiler = MemoryProfiler.getInstance(this)
       memoryProfiler?.startMonitoring()
-      Log.i(TAG, "Memory profiler initialized and started")
+      Log.i("IDEApplication", "Memory profiler initialized and started")
     } catch (e: Exception) {
-      Log.e(TAG, "Failed to initialize memory profiler", e)
+      Log.e("IDEApplication", "Failed to initialize memory profiler", e)
     }
   }
 
-  fun getMemoryProfiler(): MemoryProfiler? = memoryProfiler
+  fun getMemoryProfiler(): MemoryProfiler? {
+    return memoryProfiler
+  }
 
   companion object {
-
-    private const val TAG = "IDEApplication"
-    private const val DEFAULT_BUFFER_SIZE = 8 * 1024
 
     private val log = LoggerFactory.getLogger(IDEApplication::class.java)
 
