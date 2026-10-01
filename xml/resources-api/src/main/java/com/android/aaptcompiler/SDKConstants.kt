@@ -13,7 +13,7 @@ package com.android.aaptcompiler
  * This object NEVER throws. Every lookup has a graceful fallback.
  * Full Original internal object SDKConstants 
  */
-  object SDKConstants {
+ internal object SDKConstants {
 
     // ------------------------------------------------------------------
     //  RAW API LEVEL CONSTANTS  (Android 1.0 → 16)
