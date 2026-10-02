@@ -51,8 +51,8 @@ const val ANDROIDX_GAMES_ACTIVITY = "4.0.0"
 const val GOOGLE_MATERIAL_COMPONENTS_VERSION = "1.13.0"
 val PROJECTS_COMPILE_SDK_VERSION = Sdk.BakLava.api
 
- val TARGET_SDK_VERSION = Sdk.VanillaIceCream.api
- val COMPILE_SDK_VERSION = Sdk.BakLava.api
+ val TARGET_SDK_VERSION = Sdk.VanillaIceCream
+ val COMPILE_SDK_VERSION = Sdk.BakLava
 
 const val JAVA_SOURCE_VERSION = "17"
 const val JAVA_TARGET_VERSION = "17"
