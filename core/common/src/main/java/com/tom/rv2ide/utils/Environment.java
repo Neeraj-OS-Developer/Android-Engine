@@ -30,46 +30,127 @@ import java.io.File;
 import java.util.Map;
 import java.util.UUID;
 
+/**
+ * Central environment configuration and path management for AndroidIDE.
+ * <p>
+ * This class is responsible for initializing and providing access to all
+ * critical directories and files used by the IDE, including the home directory,
+ * prefix, project storage, Android SDK, Java runtime, and tooling APIs.
+ * It also sets up environment variables for child processes and manages
+ * temporary file creation.
+ * <p>
+ * All paths are initialized once via {@link #init(Context)} and are then
+ * available as public static fields. The class is designed to be used as a
+ * singleton-like utility with no instantiation.
+ *
+ * @author Neeraj-OS-developer
+ * @since 1.0
+ */
 @SuppressLint("SdCardPath")
 public final class Environment {
 
-    public static final String PROJECTS_FOLDER = "AndroidIDEProjects";
+    /** Name of the default folder for storing AndroidIDE projects on external storage. */
+    public static final String PROJECTS_FOLDER = "AndroidProjects";
+
     private static final Logger LOG = LoggerFactory.getLogger(Environment.class);
+
+    // ------------------------------------------------------------------------
+    // Core directory and file references (initialized in init())
+    // ------------------------------------------------------------------------
+
+    /** Root directory of the app's internal storage (context.getFilesDir()). */
     public static File ROOT;
+
+    /** Prefix directory for the Linux-like environment (usr). */
     public static File PREFIX;
+
+    /** Home directory for the IDE's user. */
     public static File HOME;
+
+    /** AndroidIDE-specific configuration directory (.androidide). */
     public static File ANDROIDIDE_HOME;
+
     // public static File ANDROIDIDE_PREFIX;
+
+    /** Directory for UI-related resources. */
     public static File ANDROIDIDE_UI;
+
+    /** Java home directory (JDK 17 or 21). */
     public static File JAVA_HOME;
+
+    /** Android SDK root directory. */
     public static File ANDROID_HOME;
+
+    /** Temporary directory for the environment. */
     public static File TMP_DIR;
+
+    /** Binary directory (usr/bin). */
     public static File BIN_DIR;
+
+    /** Library directory (usr/lib). */
     public static File LIB_DIR;
+
+    /** Directory for ACS projects (AT_ACSHOME_PROJECTS). */
     public static File AT_ACSHOME_PROJECTS;
+
+    /** Main projects directory (external storage). */
     public static File PROJECTS_DIR;
+
+    /** Realm database directory. */
     public static File REALM_DB_DIR;
 
-    /** Used by Java LSP until the project is initialized. */
+    /** Path to the android.jar used by Java LSP until project initialization. */
     public static File ANDROID_JAR;
 
+    /** Path to the tooling-api-all.jar. */
     public static File TOOLING_API_JAR;
 
+    /** Gradle init script. */
     public static File INIT_SCRIPT;
+
+    /** Gradle user home directory (.gradle). */
     public static File GRADLE_USER_HOME;
+
+    /** Path to the aapt2 binary. */
     public static File AAPT2;
+
+    /** Path to the java executable. */
     public static File JAVA;
+
+    /** Path to the bash shell. */
     public static File BASH_SHELL;
+
+    /** Path to the login shell. */
     public static File LOGIN_SHELL;
-  
-    // lsp
+
+    // ------------------------------------------------------------------------
+    // Language Server Protocol (LSP) directories
+    // ------------------------------------------------------------------------
+
+    /** Root directory for LSP servers. */
     public static File SERVERS_DIR;
+
+    /** Directory for C/C++ LSP server. */
     public static File SERVERS_C_CPP_DIR;
+
+    /** Directory for Kotlin LSP server. */
     public static File SERVERS_KOTLIN_DIR;
+
+    /** Configuration directory for Kotlin language server. */
     public static File SERVER_CONFIG_DIR;
 
+    /** ACS properties file. */
     public static File ACSIDE;
 
+    /**
+     * Initializes all environment paths and directories.
+     * <p>
+     * This method must be called once during application startup, before any
+     * other component accesses the static fields. It creates necessary
+     * directories, sets executable permissions, and configures system properties.
+     *
+     * @param context The application context, used to obtain the internal files directory.
+     */
     public static void init(Context context) {
         ROOT = context.getFilesDir();
         PREFIX = mkdirIfNotExits(new File(ROOT, "usr"));
@@ -83,7 +164,7 @@ public final class Environment {
         AT_ACSHOME_PROJECTS = mkdirIfNotExits(new File(HOME, "ACSProjects"));
         ANDROID_JAR = mkdirIfNotExits(new File(ANDROIDIDE_HOME, "android.jar"));
         TOOLING_API_JAR = new File(mkdirIfNotExits(new File(ANDROIDIDE_HOME, "tooling-api")),
-        "tooling-api-all.jar");
+                "tooling-api-all.jar");
         AAPT2 = new File(ANDROIDIDE_HOME, "aapt2");
         ANDROIDIDE_UI = mkdirIfNotExits(new File(ANDROIDIDE_HOME, "ui"));
         REALM_DB_DIR = mkdirIfNotExits(new File(ROOT, "realm-dbs"));
@@ -93,6 +174,7 @@ public final class Environment {
 
         ANDROID_HOME = new File(HOME, "android-sdk");
 
+        // Prefer Java 17, fallback to Java 21 if 17 is not present.
         File java17Home = new File(PREFIX, "lib/jvm/java-17-openjdk");
         File java21Home = new File(PREFIX, "lib/jvm/java-21-openjdk");
 
@@ -107,7 +189,7 @@ public final class Environment {
         SERVERS_C_CPP_DIR = mkdirIfNotExits(new File(HOME, "acs/servers/c_cpp/server"));
         SERVERS_KOTLIN_DIR = mkdirIfNotExits(new File(HOME, "acs/servers/kotlin/server"));
         SERVER_CONFIG_DIR = mkdirIfNotExits(new File(HOME, ".config/kotlin-language-server"));
-        
+
         // ACS
         ACSIDE = createFileIfNotExists(new File(PREFIX, "share/acside.properties"));
 
@@ -117,6 +199,12 @@ public final class Environment {
         System.setProperty("user.home", HOME.getAbsolutePath());
     }
 
+    /**
+     * Creates a directory if it does not already exist.
+     *
+     * @param in The file/directory to check and create.
+     * @return The same file object passed in.
+     */
     public static File mkdirIfNotExits(File in) {
         if (in != null && !in.exists()) {
             FileUtils.createOrExistsDir(in);
@@ -125,6 +213,12 @@ public final class Environment {
         return in;
     }
 
+    /**
+     * Creates a file if it does not already exist.
+     *
+     * @param in The file to check and create.
+     * @return The same file object passed in.
+     */
     public static File createFileIfNotExists(File in) {
         if (in != null && !in.exists()) {
             FileUtils.createOrExistsFile(in);
@@ -132,16 +226,32 @@ public final class Environment {
         return in;
     }
 
+    /**
+     * Sets the executable permission on the given file.
+     *
+     * @param file The file to mark as executable.
+     */
     public static void setExecutable(@NonNull final File file) {
         if (!file.setExecutable(true)) {
             LOG.error("Unable to set executable permissions to file: {}", file);
         }
     }
 
+    /**
+     * Updates the project directory to the given file path.
+     *
+     * @param file The new project directory.
+     */
     public static void setProjectDir(@NonNull File file) {
         PROJECTS_DIR = new File(file.getAbsolutePath());
     }
 
+    /**
+     * Populates the given map with environment variables for child processes.
+     *
+     * @param env        The map to populate.
+     * @param forFailsafe If true, skips adding user-specific environment variables.
+     */
     public static void putEnvironment(Map<String, String> env, boolean forFailsafe) {
 
         env.put("HOME", HOME.getAbsolutePath());
@@ -154,10 +264,10 @@ public final class Environment {
         env.put("PROJECTS", PROJECTS_DIR.getAbsolutePath());
         env.put("AT_ACSHOME_PROJECTS", AT_ACSHOME_PROJECTS.getAbsolutePath());
 
-        env.put("LD_LIBRARY_PATH", LIB_DIR.getAbsolutePath() + ":" + 
+        env.put("LD_LIBRARY_PATH", LIB_DIR.getAbsolutePath() + ":" +
                 new File(JAVA_HOME, "lib").getAbsolutePath());
         env.put("TMPDIR", TMP_DIR.getAbsolutePath());
-        
+
         // add user envs for non-failsafe sessions
         if (!forFailsafe) {
             // No mirror select
@@ -165,10 +275,21 @@ public final class Environment {
         }
     }
 
+    /**
+     * Returns the cache directory for a given project.
+     *
+     * @param projectDir The root directory of the project.
+     * @return The cache directory (projectDir/.acside).
+     */
     public static File getProjectCacheDir(File projectDir) {
         return new File(projectDir, ".acside");
     }
 
+    /**
+     * Creates a unique temporary file that does not yet exist on disk.
+     *
+     * @return A new {@link File} object representing a non-existent temp file.
+     */
     @NonNull
     public static File createTempFile() {
         var file = newTempFile();
@@ -179,6 +300,11 @@ public final class Environment {
         return file;
     }
 
+    /**
+     * Generates a random temporary file path (without checking existence).
+     *
+     * @return A new {@link File} object with a random name inside {@link #TMP_DIR}.
+     */
     @NonNull
     private static File newTempFile() {
         return new File(TMP_DIR, "temp_" + UUID.randomUUID().toString().replace('-', 'X'));
