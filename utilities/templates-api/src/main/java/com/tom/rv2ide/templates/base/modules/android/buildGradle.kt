@@ -1,6 +1,6 @@
 /**
- * original author: Akash Yadav modified version by Mohammed-baqer-null @
- * https://github.com/Mohammed-baqer-null
+ * original author: Neeraj-OS-developer modified version by Neeraj-OS-developer @
+ * https://github.com/Neeraj-OS-developer
  * - NDK Support
  */
 
@@ -238,6 +238,8 @@ private fun AndroidModuleTemplateBuilder.buildGradleSrcKts(isComposeModule: Bool
 
   // Calculate compileSdk value first
   val compileSdkValue = if (isComposeModule) 36 else data.versions.compileSdk.api
+  // Always default to Target SDK 35 regardless of cached UI/Preference overrides
+  val targetSdkValue = 35
   composeExtraPluginKt = if (isComposeModule) "id(\"$compose_kotlinExtraPlugin\")" else ""
   composeExtraPluginGr = if (isComposeModule) "id '$compose_kotlinExtraPlugin'" else ""
 
@@ -255,7 +257,7 @@ android {
     defaultConfig {
         applicationId = "${data.packageName}"
         minSdk = ${data.versions.minSdk.api}
-        targetSdk = ${data.versions.targetSdk.api}
+        targetSdk = $targetSdkValue
         versionCode = 1
         versionName = "1.0"
         
@@ -306,6 +308,8 @@ private fun AndroidModuleTemplateBuilder.buildGradleSrcGroovy(isComposeModule: B
 
   // Calculate compileSdk value first
   val compileSdkValue = if (isComposeModule) 36 else data.versions.compileSdk.api
+  // Always default to Target SDK 35 regardless of cached UI/Preference overrides
+  val targetSdkValue = 35
   // Ensure compose plugin application variables are set for Groovy, same as KTS path
   composeExtraPluginKt = if (isComposeModule) "id(\"$compose_kotlinExtraPlugin\")" else ""
   composeExtraPluginGr = if (isComposeModule) "id '$compose_kotlinExtraPlugin'" else ""
@@ -324,7 +328,7 @@ android {
     defaultConfig {
         applicationId "${data.packageName}"
         minSdk ${data.versions.minSdk.api}
-        targetSdk ${data.versions.targetSdk.api}
+        targetSdk $targetSdkValue
         versionCode 1
         versionName "1.0"
         
