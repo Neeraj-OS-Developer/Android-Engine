@@ -238,8 +238,6 @@ private fun AndroidModuleTemplateBuilder.buildGradleSrcKts(isComposeModule: Bool
 
   // Calculate compileSdk value first
   val compileSdkValue = if (isComposeModule) 36 else data.versions.compileSdk.api
-  // Always default to Target SDK 35 regardless of cached UI/Preference overrides
-  val targetSdkValue = 35
   composeExtraPluginKt = if (isComposeModule) "id(\"$compose_kotlinExtraPlugin\")" else ""
   composeExtraPluginGr = if (isComposeModule) "id '$compose_kotlinExtraPlugin'" else ""
 
@@ -257,7 +255,7 @@ android {
     defaultConfig {
         applicationId = "${data.packageName}"
         minSdk = ${data.versions.minSdk.api}
-        targetSdk = $targetSdkValue
+        targetSdk = ${data.versions.targetSdk.api}
         versionCode = 1
         versionName = "1.0"
         
@@ -308,8 +306,6 @@ private fun AndroidModuleTemplateBuilder.buildGradleSrcGroovy(isComposeModule: B
 
   // Calculate compileSdk value first
   val compileSdkValue = if (isComposeModule) 36 else data.versions.compileSdk.api
-  // Always default to Target SDK 35 regardless of cached UI/Preference overrides
-  val targetSdkValue = 35
   // Ensure compose plugin application variables are set for Groovy, same as KTS path
   composeExtraPluginKt = if (isComposeModule) "id(\"$compose_kotlinExtraPlugin\")" else ""
   composeExtraPluginGr = if (isComposeModule) "id '$compose_kotlinExtraPlugin'" else ""
@@ -328,7 +324,7 @@ android {
     defaultConfig {
         applicationId "${data.packageName}"
         minSdk ${data.versions.minSdk.api}
-        targetSdk $targetSdkValue
+        targetSdk ${data.versions.targetSdk.api}
         versionCode 1
         versionName "1.0"
         
