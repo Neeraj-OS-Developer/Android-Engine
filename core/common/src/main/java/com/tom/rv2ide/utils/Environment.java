@@ -33,7 +33,7 @@ import java.util.UUID;
 @SuppressLint("SdCardPath")
 public final class Environment {
 
-    public static final String PROJECTS_FOLDER = "AndroidIDEProjects";
+    public static final String PROJECTS_FOLDER = "AndroidProjects";
     private static final Logger LOG = LoggerFactory.getLogger(Environment.class);
     public static File ROOT;
     public static File PREFIX;
