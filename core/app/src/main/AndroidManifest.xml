@@ -150,8 +150,9 @@
     </receiver>
 
     <service
-      android:exported="false"
-      android:name=".services.builder.GradleBuildService" />
+    android:name=".services.builder.GradleBuildService"
+    android:exported="false"
+    android:foregroundServiceType="dataSync" />
 
     <service
       android:name="com.termux.app.TermuxService"
