@@ -143,8 +143,22 @@ import io.github.mohammedbaqernull.seasonal.SeasonalEffects
 /**
  * Base class for EditorActivity which handles most of the view related things.
  *
- * original @author Akash Yadav
- * @modification Mohammed-baqer-null @ https://github.com/Mohammed-baqer-null
+ * ---------------------------------------------------------------------------------------------
+ * LIFECYCLE-SAFETY REFACTOR (Neeraj-OS-Developer)
+ * ---------------------------------------------------------------------------------------------
+ * • Added `getBindingOrNull()`, `getContentOrNull()` and `isActivityAlive()` so callbacks coming
+ *   from background sources (e.g. `EditorBuildEventListener.prepareBuild()` dispatched by
+ *   `GradleBuildService`) cannot hit `checkNotNull(_binding)` after the Activity is destroyed.
+ * • Every LiveData observer, memory-listener tick, `runOnUiThread` post, layout listener and
+ *   external event callback now funnels through `isActivityAlive()` — post-destroy dispatches
+ *   are silent no-ops instead of `IllegalStateException`.
+ * • `preDestroy()` now also nulls the bottom-sheet behavior reference, clears the memory-chart
+ *   callback, and tears down the auto-save coroutine *before* clearing maps — eliminating
+ *   dangling references / leaks across Activity recreation.
+ * ---------------------------------------------------------------------------------------------
+ *
+ * original @author Neeraj-OS-developer 
+ * @modification Neeraj-OS-developer  @ https://github.com/Neeraj-OS-developer
  */
 @Suppress("MemberVisibilityCanBePrivate")
 abstract class BaseEditorActivity :
@@ -166,9 +180,10 @@ abstract class BaseEditorActivity :
   private val editorTextWatchers = ConcurrentHashMap<CodeEditorView, TextWatcher>()
   private val editorContentHashes = ConcurrentHashMap<CodeEditorView, Int>()
   private var lastAutoSaveCheck = 0L
-  
+
   private lateinit var dependencyUpdater: DependencyUpdaterDialog
 
+  @Volatile
   var isDestroying = false
     protected set
 
@@ -181,11 +196,37 @@ abstract class BaseEditorActivity :
   val editorViewModel by viewModels<EditorViewModel>()
 
   internal var _binding: ActivityEditorBinding? = null
+
+  /**
+   * Strict binding accessor — **only** use this from code paths that are guaranteed to run while
+   * the Activity is alive (e.g. `onCreate`, `onResume`, synchronous lifecycle callbacks).
+   * Asynchronous / external callbacks MUST use [getBindingOrNull].
+   */
   val binding: ActivityEditorBinding
     get() = checkNotNull(_binding) { "Activity has been destroyed" }
 
+  /**
+   * Strict content accessor — see [binding]. Async callers must use [getContentOrNull].
+   */
   val content: ContentEditorBinding
     get() = binding.content
+
+  // ---------------------------------------------------------------------------------------------
+  // Lifecycle-safe accessors — safe to call from any thread / any time.
+  // ---------------------------------------------------------------------------------------------
+
+  /** @return the binding if the Activity is still alive and views exist, otherwise `null`. */
+  fun getBindingOrNull(): ActivityEditorBinding? = _binding?.takeIf { !isDestroying && !isDestroyed && !isFinishing }
+
+  /** @return the content binding if the Activity is still alive, otherwise `null`. */
+  fun getContentOrNull(): ContentEditorBinding? = getBindingOrNull()?.content
+
+  /**
+   * Single source of truth for "is it safe to touch the UI right now?".
+   * Combines: framework destroyed flags + our own isDestroying flag + view binding presence.
+   */
+  fun isActivityAlive(): Boolean =
+      !isDestroying && !isDestroyed && !isFinishing && _binding != null
 
   override val subscribeToEvents: Boolean
     get() = true
@@ -193,12 +234,13 @@ abstract class BaseEditorActivity :
   private val onBackPressedCallback: OnBackPressedCallback =
       object : OnBackPressedCallback(true) {
         override fun handleOnBackPressed() {
-          if (binding.root.isDrawerOpen(GravityCompat.START)) {
-            binding.root.closeDrawer(GravityCompat.START)
+          val b = _binding ?: return
+          if (b.root.isDrawerOpen(GravityCompat.START)) {
+            b.root.closeDrawer(GravityCompat.START)
           } else if (editorBottomSheet?.state != BottomSheetBehavior.STATE_COLLAPSED) {
             editorBottomSheet?.setState(BottomSheetBehavior.STATE_COLLAPSED)
-          } else if (binding.swipeReveal.isOpen) {
-            binding.swipeReveal.close()
+          } else if (b.swipeReveal.isOpen) {
+            b.swipeReveal.close()
           } else {
             doConfirmProjectClose()
           }
@@ -209,6 +251,11 @@ abstract class BaseEditorActivity :
 
   private val memoryUsageListener =
       MemoryUsageWatcher.MemoryUsageListener { memoryUsage ->
+        // Early bail-out if the Activity is gone — prevents IllegalStateException and needless work.
+        if (!isActivityAlive()) {
+          return@MemoryUsageListener
+        }
+
         // Check available memory before updating chart
         val runtime = Runtime.getRuntime()
         val usedMemory = runtime.totalMemory() - runtime.freeMemory()
@@ -336,7 +383,7 @@ abstract class BaseEditorActivity :
 
   /** Auto-save TextWatcher implementation */
   private fun checkForContentChanges() {
-    if (!isAutoSaveEnabled() || isDestroying) {
+    if (!isAutoSaveEnabled() || isDestroying || !isActivityAlive()) {
       return
     }
 
@@ -380,11 +427,13 @@ abstract class BaseEditorActivity :
               delay(AUTO_SAVE_DELAY_MS)
 
               if (isAutoSaveEnabled() && !isDestroying) {
-                withContext(Dispatchers.Main) { checkForContentChanges() }
+                withContext(Dispatchers.Main) {
+                  if (isActivityAlive()) checkForContentChanges()
+                }
 
                 delay(100)
 
-                if (pendingSaveFiles.isNotEmpty()) {
+                if (pendingSaveFiles.isNotEmpty() && !isDestroying) {
                   performAutoSave()
                 }
               }
@@ -447,8 +496,10 @@ abstract class BaseEditorActivity :
                       }
                     }
 
-                if (saveSuccess) {
-                  withContext(Dispatchers.Main) { showAutoSaveIndicator(file.name) }
+                if (saveSuccess && !isDestroying) {
+                  withContext(Dispatchers.Main) {
+                    if (isActivityAlive()) showAutoSaveIndicator(file.name)
+                  }
                 }
               }
             }
@@ -467,7 +518,7 @@ abstract class BaseEditorActivity :
       if (file != null && file.exists() && file.canWrite()) {
         file.writeText(content)
         log.debug("Fallback save successful for: ${file.absolutePath}")
-        showAutoSaveIndicator(file.name)
+        if (isActivityAlive()) showAutoSaveIndicator(file.name)
       }
     } catch (e: Exception) {
       log.error("Fallback save failed for: ${editor.file?.absolutePath}", e)
@@ -497,6 +548,9 @@ abstract class BaseEditorActivity :
 
   /** Show a subtle indicator that a file was auto-saved */
   private fun showAutoSaveIndicator(fileName: String) {
+    if (!isActivityAlive()) {
+      return
+    }
     // Update status to show auto-save happened
     val statusText = "Auto-saved: $fileName"
     doSetStatus(statusText, android.view.Gravity.CENTER)
@@ -504,7 +558,7 @@ abstract class BaseEditorActivity :
     // Clear the status after a short delay
     ThreadUtils.runOnUiThreadDelayed(
         {
-          if (!isDestroying) {
+          if (isActivityAlive()) {
             doSetStatus("", android.view.Gravity.START)
           }
         },
@@ -575,8 +629,11 @@ abstract class BaseEditorActivity :
           setupDependencyUpdater()
       }
   }
-  
+
   protected open fun preDestroy() {
+    // Mark as destroying as early as possible so any in-flight callback sees the flag.
+    isDestroying = true
+
     _binding = null
 
     optionsMenuInvalidator?.also { ThreadUtils.getMainHandler().removeCallbacks(it) }
@@ -587,33 +644,39 @@ abstract class BaseEditorActivity :
     installationCallback = null
     SeasonalEffects.setSnowflakeCount(20)
 
-    if (isDestroying) {
-      saveAllPendingFiles()
-      stopAutoSave()
+    saveAllPendingFiles()
+    stopAutoSave()
 
-      // Clear content hashes and pending files
-      editorContentHashes.clear()
-      editorTextWatchers.clear()
-      pendingSaveFiles.clear()
+    // Clear content hashes and pending files
+    editorContentHashes.clear()
+    editorTextWatchers.clear()
+    pendingSaveFiles.clear()
 
-      try {
-        val openedFiles = getOpenedFiles()
-        for (i in openedFiles.indices) {
-          provideEditorAt(i)?.editor?.release()
-        }
-      } catch (e: Exception) {
-        log.warn("Failed to release editors: ${e.message}")
+    try {
+      val openedFiles = getOpenedFiles()
+      for (i in openedFiles.indices) {
+        provideEditorAt(i)?.editor?.release()
       }
-      
-      try {
-        memoryUsageWatcher.stopWatching(true)
-        memoryUsageWatcher.listener = null
-      } catch (e: Exception) {
-        log.warn("Failed to stop memory monitoring: ${e.message}")
-      }
-      editorActivityScope.cancelIfActive("Activity is being destroyed")
+    } catch (e: Exception) {
+      log.warn("Failed to release editors: ${e.message}")
     }
-    
+
+    try {
+      memoryUsageWatcher.stopWatching(true)
+      memoryUsageWatcher.listener = null
+    } catch (e: Exception) {
+      log.warn("Failed to stop memory monitoring: ${e.message}")
+    }
+
+    // Detach bottom-sheet reference to avoid holding onto the (now detached) view hierarchy.
+    try {
+      editorBottomSheet?.removeBottomSheetCallback(null as BottomSheetCallback?)
+    } catch (_: Throwable) {
+      // ignored — BottomSheetBehavior may not expose that in every version
+    }
+    editorBottomSheet = null
+
+    editorActivityScope.cancelIfActive("Activity is being destroyed")
   }
 
   protected open fun postDestroy() {
@@ -645,7 +708,7 @@ abstract class BaseEditorActivity :
     }
   }
 
-override fun onApplySystemBarInsets(insets: Insets) {
+  override fun onApplySystemBarInsets(insets: Insets) {
     super.onApplySystemBarInsets(insets)
     this._binding?.apply {
       drawerSidebar.getFragment<EditorSidebarFragment>().onApplyWindowInsets(insets)
@@ -658,23 +721,25 @@ override fun onApplySystemBarInsets(insets: Insets) {
         )
       }
     }
-}
+  }
 
   @Subscribe(threadMode = MAIN)
   open fun onInstallationResult(event: InstallationResultEvent) {
     val intent = event.intent
-    if (isDestroying) {
+    if (!isActivityAlive()) {
       return
     }
 
     val packageName = onResult(this, intent) ?: return
+
+    val contentBinding = getContentOrNull() ?: return
 
     if (BuildPreferences.launchAppAfterInstall) {
       IntentUtils.launchApp(this, packageName)
       return
     }
 
-    Snackbar.make(content.realContainer, string.msg_action_open_application, Snackbar.LENGTH_LONG)
+    Snackbar.make(contentBinding.realContainer, string.msg_action_open_application, Snackbar.LENGTH_LONG)
         .setAction(string.yes) { IntentUtils.launchApp(this, packageName) }
         .show()
   }
@@ -706,18 +771,17 @@ override fun onApplySystemBarInsets(insets: Insets) {
 
     setupContainers()
     setupDiagnosticInfo()
-    
+
     ViewCompat.setOnApplyWindowInsetsListener(binding.root) { view, windowInsets ->
         val systemBars = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars())
 
-        binding.content.editorToolbar.updatePaddingRelative(
+        _binding?.content?.editorToolbar?.updatePaddingRelative(
             start = systemBars.left,
             end = systemBars.right,
         )
         windowInsets
     }
-    
-    
+
     uiDesignerResultLauncher =
         registerForActivityResult(StartActivityForResult(), this::handleUiDesignerResult)
 
@@ -726,11 +790,14 @@ override fun onApplySystemBarInsets(insets: Insets) {
 
     // Start auto-save mechanism
     startAutoSave()
-    
+
     SeasonalEffects.setSnowflakeCount(0)
     // Initialize lsp setup
     val setup = Setup(this)
     setup.scanProjectForLanguageServers(ProjectManagerImpl.getInstance().projectDir) { isSuccessfullyInstalled ->
+      if (!isActivityAlive()) {
+        return@scanProjectForLanguageServers
+      }
       if (isSuccessfullyInstalled) {
         flashSuccess("Installation succeeded")
         if (!editorViewModel.isInitializing) {
@@ -743,15 +810,15 @@ override fun onApplySystemBarInsets(insets: Insets) {
     if (BuildPreferences.isKtIndexingNotificationEnabled) {
       // Use IndexingBanner to show progress
       val indexingBanner = IndexingBanner(this)
-      
+
       lifecycleScope.launch {
         LogStream.outputFlow.collect { logMessage ->
-          if (Index.isIndexing() && !Initialization.isProjectInitializing.value) {
+          if (isActivityAlive() && Index.isIndexing() && !Initialization.isProjectInitializing.value) {
             indexingBanner.updateMessage(logMessage)
           }
         }
       }
-      
+
       lifecycleScope.launch {
         combine(
           Initialization.isProjectInitializing,
@@ -759,6 +826,9 @@ override fun onApplySystemBarInsets(insets: Insets) {
         ) { isInitializing, isIndexing ->
           !isInitializing && isIndexing
         }.collect { shouldShowIndexing ->
+          if (!isActivityAlive()) {
+            return@collect
+          }
           if (shouldShowIndexing) {
             indexingBanner.show()
           } else {
@@ -767,30 +837,29 @@ override fun onApplySystemBarInsets(insets: Insets) {
         }
       }
     }
-    
-    
   }
 
   private fun setupDependencyUpdater() {
       if (BuildPreferences.isDependenciesUpdaterEnabled) {
         val projectDir = ProjectManagerImpl.getInstance().projectDir
-        
+
         val buildFile = findModuleBuildFile(projectDir)
         val tomlFile = findLibsVersionsToml(projectDir)
-        
+
         if (buildFile == null) {
             log.debug("No module-level build file found for dependency updater")
             return
         }
-        
+
         log.debug("Setting up dependency updater with build file: ${buildFile.absolutePath}")
-        
+
         dependencyUpdater = DependencyUpdaterDialog(
             context = this,
             lifecycleOwner = this,
             buildGradleFile = buildFile,
             libsVersionsTomlFile = tomlFile,
             onDependenciesUpdated = {
+                if (!isActivityAlive()) return@DependencyUpdaterDialog
                 val currentFile = provideCurrentEditor()?.file
                 if (currentFile != null && currentFile.absolutePath == buildFile.absolutePath) {
                     provideCurrentEditor()?.editor?.text?.let { text ->
@@ -801,15 +870,15 @@ override fun onApplySystemBarInsets(insets: Insets) {
                 }
             }
         )
-        
+
         log.debug("Calling checkForUpdates()")
         dependencyUpdater.checkForUpdates()
       }
   }
-  
+
   private fun findModuleBuildFile(projectDir: File): File? {
       val possibleNames = listOf("build.gradle.kts", "build.gradle")
-      
+
       projectDir.listFiles()?.forEach { file ->
           if (file.isDirectory && !file.name.startsWith(".")) {
               for (name in possibleNames) {
@@ -817,7 +886,7 @@ override fun onApplySystemBarInsets(insets: Insets) {
                   if (buildFile.exists() && buildFile.isFile) {
                       try {
                           val content = buildFile.readText()
-                          if (content.contains("android {") && 
+                          if (content.contains("android {") &&
                               (content.contains("namespace") || content.contains("applicationId"))) {
                               log.debug("Found module build file: ${buildFile.absolutePath}")
                               return buildFile
@@ -829,7 +898,7 @@ override fun onApplySystemBarInsets(insets: Insets) {
               }
           }
       }
-      
+
       for (name in possibleNames) {
           val buildFile = File(projectDir, name)
           if (buildFile.exists() && buildFile.isFile) {
@@ -837,11 +906,11 @@ override fun onApplySystemBarInsets(insets: Insets) {
               return buildFile
           }
       }
-      
+
       log.warn("No module-level build file found in project directory")
       return null
   }
-  
+
   private fun findLibsVersionsToml(projectDir: File): File? {
       val tomlFile = File(projectDir, "gradle/libs.versions.toml")
       if (tomlFile.exists() && tomlFile.isFile) {
@@ -851,7 +920,7 @@ override fun onApplySystemBarInsets(insets: Insets) {
       log.debug("No libs.versions.toml file found")
       return null
   }
-    
+
   private fun onSwipeRevealDragProgress(progress: Float) {
     _binding?.apply {
       contentCard.progress = progress
@@ -912,6 +981,11 @@ override fun onApplySystemBarInsets(insets: Insets) {
 
   protected fun resetMemUsageChart() {
     try {
+      // Bail if the Activity is no longer safe to render.
+      if (!isActivityAlive()) {
+        return
+      }
+
       val processes = memoryUsageWatcher.getMemoryUsages()
 
       // Clear existing dataset mapping
@@ -944,9 +1018,10 @@ override fun onApplySystemBarInsets(insets: Insets) {
         log.debug("Mapped process ${proc.pid} (${proc.pname}) to dataset index $index")
       }
 
-      binding.memUsageView.chart.setBackgroundColor(bgColor)
+      val chart = _binding?.memUsageView?.chart ?: return
+      chart.setBackgroundColor(bgColor)
 
-      binding.memUsageView.chart.apply {
+      chart.apply {
         data = LineData(*datasets)
         axisRight.textColor = textColor
         axisLeft.textColor = textColor
@@ -999,6 +1074,11 @@ override fun onApplySystemBarInsets(insets: Insets) {
     super.onResume()
     invalidateOptionsMenu()
 
+    // Re-arm the alive flags in case we're returning from a "was-finishing" state.
+    if (!isFinishing && !isDestroyed) {
+      isDestroying = false
+    }
+
     try {
       memoryUsageWatcher.listener = memoryUsageListener
       memoryUsageWatcher.startWatching()
@@ -1049,27 +1129,34 @@ override fun onApplySystemBarInsets(insets: Insets) {
     val mainHandler = ThreadUtils.getMainHandler()
     optionsMenuInvalidator?.also {
       mainHandler.removeCallbacks(it)
-      mainHandler.postDelayed(it, OPTIONS_MENU_INVALIDATION_DELAY)
+      // Only re-post if we still have a live window to invalidate.
+      if (isActivityAlive()) {
+        mainHandler.postDelayed(it, OPTIONS_MENU_INVALIDATION_DELAY)
+      }
     }
   }
 
   override fun onTabSelected(tab: Tab) {
+      if (!isActivityAlive()) {
+        return
+      }
       val position = tab.position
       editorViewModel.displayedFileIndex = position
-  
-      val editorView = provideEditorAt(position)!!
+
+      val editorView = provideEditorAt(position) ?: return
       editorView.onEditorSelected()
-  
+
       editorViewModel.setCurrentFile(position, editorView.file)
       refreshSymbolInput(editorView)
       invalidateOptionsMenu()
-  
+
       initializeAutoSaveForEditor(editorView)
   }
 
   override fun onTabUnselected(tab: Tab) {}
 
   override fun onTabReselected(tab: Tab) {
+    if (!isActivityAlive()) return
     createMenu(this, tab.view, EDITOR_FILE_TABS, true).show()
   }
 
@@ -1086,6 +1173,7 @@ override fun onApplySystemBarInsets(insets: Insets) {
   }
 
   open fun handleSearchResults(map: Map<File, List<SearchResult>>?) {
+    if (!isActivityAlive()) return
     val results = map ?: emptyMap()
     setSearchResultAdapter(
         SearchListAdapter(
@@ -1105,45 +1193,49 @@ override fun onApplySystemBarInsets(insets: Insets) {
   }
 
   open fun setSearchResultAdapter(adapter: SearchListAdapter) {
-    content.bottomSheet.setSearchResultAdapter(adapter)
+    getContentOrNull()?.bottomSheet?.setSearchResultAdapter(adapter)
   }
 
   open fun setDiagnosticsAdapter(adapter: DiagnosticsAdapter) {
-    content.bottomSheet.setDiagnosticsAdapter(adapter)
+    getContentOrNull()?.bottomSheet?.setDiagnosticsAdapter(adapter)
   }
 
   open fun hideBottomSheet() {
+    if (!isActivityAlive()) return
     if (editorBottomSheet?.state != BottomSheetBehavior.STATE_COLLAPSED) {
       editorBottomSheet?.state = BottomSheetBehavior.STATE_COLLAPSED
-      content.bottomSheet.binding.headerContainer.visibility = View.VISIBLE
+      _binding?.content?.bottomSheet?.binding?.headerContainer?.visibility = View.VISIBLE
     }
   }
 
   open fun showSearchResults() {
+    if (!isActivityAlive()) return
     if (editorBottomSheet?.state != BottomSheetBehavior.STATE_EXPANDED) {
       editorBottomSheet?.state = BottomSheetBehavior.STATE_EXPANDED
     }
-  
+
+    val contentBinding = getContentOrNull() ?: return
     val index =
-        content.bottomSheet.pagerAdapter.findIndexOfFragmentByClass(
+        contentBinding.bottomSheet.pagerAdapter.findIndexOfFragmentByClass(
             SearchResultFragment::class.java
         )
-  
-    if (index >= 0 && index < content.bottomSheet.binding.tabs.tabCount) {
-      content.bottomSheet.binding.tabs.getTabAt(index)?.select()
-      content.bottomSheet.binding.headerContainer.visibility = View.GONE
+
+    if (index >= 0 && index < contentBinding.bottomSheet.binding.tabs.tabCount) {
+      contentBinding.bottomSheet.binding.tabs.getTabAt(index)?.select()
+      contentBinding.bottomSheet.binding.headerContainer.visibility = View.GONE
     }
   }
 
   open fun handleDiagnosticsResultVisibility(errorVisible: Boolean) {
-    content.bottomSheet.handleDiagnosticsResultVisibility(errorVisible)
+    getContentOrNull()?.bottomSheet?.handleDiagnosticsResultVisibility(errorVisible)
   }
 
   open fun handleSearchResultVisibility(errorVisible: Boolean) {
-    content.bottomSheet.handleSearchResultVisibility(errorVisible)
+    getContentOrNull()?.bottomSheet?.handleSearchResultVisibility(errorVisible)
   }
 
   open fun showFirstBuildNotice() {
+    if (!isActivityAlive()) return
     newMaterialDialogBuilder(this)
         .setPositiveButton(android.R.string.ok, null)
         .setTitle(string.title_first_build)
@@ -1195,23 +1287,23 @@ override fun onApplySystemBarInsets(insets: Insets) {
   }
 
   fun refreshSymbolInput() {
+    if (!isActivityAlive()) return
     provideCurrentEditor()?.also { refreshSymbolInput(it) }
   }
 
   fun refreshSymbolInput(editor: CodeEditorView) {
-    content.bottomSheet.refreshSymbolInput(editor)
+    getContentOrNull()?.bottomSheet?.refreshSymbolInput(editor)
   }
 
   protected fun requestBottomSheetHeaderHide(reason: String) {
     runOnUiThread {
-      if (_binding == null) {
-        return@runOnUiThread
-      }
+      val b = _binding ?: return@runOnUiThread
+      if (!isActivityAlive()) return@runOnUiThread
       val wasAdded = bottomSheetHeaderHideReasons.add(reason)
       if (!wasAdded || bottomSheetHeaderHideReasons.size > 1) {
         return@runOnUiThread
       }
-      val bottomSheetBinding = content.bottomSheet.binding
+      val bottomSheetBinding = b.content.bottomSheet.binding
       bottomSheetCardVisibilitySnapshot = bottomSheetBinding.cardView.visibility
       bottomSheetHeaderVisibilitySnapshot = bottomSheetBinding.headerContainer.visibility
       bottomSheetBinding.cardView.visibility = View.INVISIBLE
@@ -1221,14 +1313,13 @@ override fun onApplySystemBarInsets(insets: Insets) {
 
   protected fun releaseBottomSheetHeaderHide(reason: String) {
     runOnUiThread {
-      if (_binding == null) {
-        return@runOnUiThread
-      }
+      val b = _binding ?: return@runOnUiThread
+      if (!isActivityAlive()) return@runOnUiThread
       val wasRemoved = bottomSheetHeaderHideReasons.remove(reason)
       if (!wasRemoved || bottomSheetHeaderHideReasons.isNotEmpty()) {
         return@runOnUiThread
       }
-      val bottomSheetBinding = content.bottomSheet.binding
+      val bottomSheetBinding = b.content.bottomSheet.binding
       bottomSheetBinding.cardView.visibility = bottomSheetCardVisibilitySnapshot
       bottomSheetBinding.headerContainer.visibility = bottomSheetHeaderVisibilitySnapshot
     }
@@ -1249,6 +1340,9 @@ override fun onApplySystemBarInsets(insets: Insets) {
   }
 
   private fun handleUiDesignerResult(result: ActivityResult) {
+    if (!isActivityAlive()) {
+      return
+    }
     if (result.resultCode != RESULT_OK || result.data == null) {
       log.warn(
           "UI Designer returned invalid result: resultCode={}, data={}",
@@ -1296,22 +1390,32 @@ override fun onApplySystemBarInsets(insets: Insets) {
   }
 
   private fun onBuildStatusChanged() {
+    // This is invoked from a LiveData observer — always on the main thread — but the Activity
+    // may have been destroyed in the meantime (e.g. GradleBuildService reported progress after
+    // the user closed the editor). Bail out silently in that case.
+    if (!isActivityAlive()) {
+      return
+    }
+
     log.debug(
         "onBuildStatusChanged: isInitializing: ${editorViewModel.isInitializing}, isBuildInProgress: ${editorViewModel.isBuildInProgress}"
     )
     Initialization.setInitializing(editorViewModel.isInitializing)
     val visible = editorViewModel.isBuildInProgress || editorViewModel.isInitializing
-    content.progressIndicator.visibility = if (visible) View.VISIBLE else View.GONE
+    _binding?.content?.progressIndicator?.visibility = if (visible) View.VISIBLE else View.GONE
     invalidateOptionsMenu()
   }
 
   private fun setupViews() {
     editorViewModel._isBuildInProgress.observe(this) { onBuildStatusChanged() }
     editorViewModel._isInitializing.observe(this) { onBuildStatusChanged() }
-    editorViewModel._statusText.observe(this) { content.bottomSheet.setStatus(it.first, it.second) }
+    editorViewModel._statusText.observe(this) {
+      getContentOrNull()?.bottomSheet?.setStatus(it.first, it.second)
+    }
 
     editorViewModel.observeFiles(this) { files ->
-      content.apply {
+      val contentBinding = getContentOrNull() ?: return@observeFiles
+      contentBinding.apply {
         if (files.isNullOrEmpty()) {
           tabs.visibility = View.GONE
           viewContainer.displayedChild = 1
@@ -1348,7 +1452,9 @@ override fun onApplySystemBarInsets(insets: Insets) {
       editorBottomSheet?.state = BottomSheetBehavior.STATE_EXPANDED
       ThreadUtils.runOnUiThreadDelayed(
           {
-            editorBottomSheet?.state = BottomSheetBehavior.STATE_COLLAPSED
+            if (isActivityAlive()) {
+              editorBottomSheet?.state = BottomSheetBehavior.STATE_COLLAPSED
+            }
             app.prefManager.putBoolean(KEY_BOTTOM_SHEET_SHOWN, true)
           },
           1500,
@@ -1367,11 +1473,12 @@ override fun onApplySystemBarInsets(insets: Insets) {
   }
 
   private fun setupNoEditorView() {
-    content.noEditorSummary.movementMethod = LinkMovementMethod()
+    val contentBinding = getContentOrNull() ?: return
+    contentBinding.noEditorSummary.movementMethod = LinkMovementMethod()
     val filesSpan: ClickableSpan =
         object : ClickableSpan() {
           override fun onClick(widget: View) {
-            binding.root.openDrawer(GravityCompat.START)
+            _binding?.root?.openDrawer(GravityCompat.START)
           }
         }
     val bottomSheetSpan: ClickableSpan =
@@ -1383,7 +1490,7 @@ override fun onApplySystemBarInsets(insets: Insets) {
     val sb = SpannableStringBuilder()
     appendClickableSpan(sb, string.msg_drawer_for_files, filesSpan)
     appendClickableSpan(sb, string.msg_swipe_for_output, bottomSheetSpan)
-    content.noEditorSummary.text = sb
+    contentBinding.noEditorSummary.text = sb
   }
 
   private fun appendClickableSpan(
@@ -1410,6 +1517,7 @@ override fun onApplySystemBarInsets(insets: Insets) {
     editorBottomSheet?.addBottomSheetCallback(
         object : BottomSheetCallback() {
           override fun onStateChanged(bottomSheet: View, newState: Int) {
+            if (!isActivityAlive()) return
             if (newState == BottomSheetBehavior.STATE_EXPANDED) {
               val editor = provideCurrentEditor()
               editor?.editor?.ensureWindowsDismissed()
@@ -1417,7 +1525,8 @@ override fun onApplySystemBarInsets(insets: Insets) {
           }
 
           override fun onSlide(bottomSheet: View, slideOffset: Float) {
-            content.apply {
+            val contentBinding = getContentOrNull() ?: return
+            contentBinding.apply {
               val editorScale = 1 - slideOffset * (1 - EDITOR_CONTAINER_SCALE_FACTOR)
               this.bottomSheet.onSlide(slideOffset)
               this.viewContainer.scaleX = editorScale
@@ -1430,8 +1539,12 @@ override fun onApplySystemBarInsets(insets: Insets) {
     val observer: OnGlobalLayoutListener =
         object : OnGlobalLayoutListener {
           override fun onGlobalLayout() {
-            contentCardRealHeight = binding.contentCard.height
-            content.also {
+            val contentBinding = getContentOrNull()
+            if (contentBinding == null) {
+              return
+            }
+            contentCardRealHeight = _binding?.contentCard?.height ?: return
+            contentBinding.also {
               it.realContainer.pivotX = it.realContainer.width.toFloat() / 2f
               it.realContainer.pivotY =
                   (it.realContainer.height.toFloat() / 2f) +
@@ -1463,13 +1576,14 @@ override fun onApplySystemBarInsets(insets: Insets) {
   }
 
   private fun onSoftInputChanged() {
-    if (!isDestroying) {
+    if (isActivityAlive()) {
       invalidateOptionsMenu()
-      content.bottomSheet.onSoftInputChanged()
+      getContentOrNull()?.bottomSheet?.onSoftInputChanged()
     }
   }
 
   private fun showNeedHelpDialog() {
+    if (!isActivityAlive()) return
     val builder = newMaterialDialogBuilder(this)
     builder.setTitle(string.need_help)
     builder.setMessage(string.msg_need_help)
