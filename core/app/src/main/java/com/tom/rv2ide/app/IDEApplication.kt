@@ -14,15 +14,21 @@
  * You should have received a copy of the GNU General Public License
  * along with AndroidIDE.  If not, see <https://www.gnu.org/licenses/>.
  *
+ * Author Neeraj-OS-developer 
+ *
  */
 
 package com.tom.rv2ide.app
 
+import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
+import android.os.Bundle
 import android.os.StrictMode
 import android.util.Log
+import android.view.ViewTreeObserver
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.os.LocaleListCompat
 import androidx.lifecycle.Observer
@@ -159,7 +165,77 @@ class IDEApplication : TermuxApplication() {
 
     // DISABLED: Plugin system completely disabled to prevent Tooling API issues
     // initializePluginSystem()
+
+    // ✅ CyberUI — पूरे app में immersive fullscreen (companion toggle से on/off)
+    enableCyberImmersive()
   }
+
+  // ═══════════════════════════════════════════════════════════════
+  //  CYBERUI — IMMERSIVE FULLSCREEN (हर Activity पर auto apply)
+  // ═══════════════════════════════════════════════════════════════
+
+  /**
+   * CyberUI — पूरे app में auto Immersive Fullscreen (Status Bar + Navigation Bar
+   * दोनों छिप जाते हैं)। हर Activity पर automatically लागू होता है — किसी भी
+   * Activity में कोई code लिखने की ज़रूरत नहीं।
+   *
+   * On/Off करने के लिए companion object में `ENABLE_CYBER_IMMERSIVE` बदल दो।
+   *
+   * Android 10/11 पर system bars first frame के बाद वापस आ जाते हैं — इसलिए
+   * हर window focus पर दोबारा apply किया जाता है (यही असली fix है)।
+   */
+  private fun enableCyberImmersive() {
+    if (!ENABLE_CYBER_IMMERSIVE) {
+      log.info("CyberUI: Immersive fullscreen DISABLED via toggle")
+      return
+    }
+
+    registerActivityLifecycleCallbacks(
+        object : ActivityLifecycleCallbacks {
+
+          override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {
+            // पहला apply — Activity बनते ही
+            CyberUI.applyImmersiveFullscreen(activity)
+
+            // Android 10/11 fix — हर focus पर दोबारा apply
+            // (Activity.onWindowFocusChanged का Application-level equivalent)
+            activity.window.decorView.viewTreeObserver.addOnWindowFocusChangeListener(
+                object : ViewTreeObserver.OnWindowFocusChangeListener {
+                  override fun onWindowFocusChanged(hasFocus: Boolean) {
+                    if (!hasFocus) return
+
+                    // Activity ज़िंदा है या नहीं — safety check
+                    if (activity.isFinishing) return
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1 &&
+                        activity.isDestroyed
+                    ) {
+                      return
+                    }
+
+                    CyberUI.applyImmersiveFullscreen(activity)
+                  }
+                }
+            )
+          }
+
+          override fun onActivityStarted(activity: Activity) {}
+
+          override fun onActivityResumed(activity: Activity) {}
+
+          override fun onActivityPaused(activity: Activity) {}
+
+          override fun onActivityStopped(activity: Activity) {}
+
+          override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) {}
+
+          override fun onActivityDestroyed(activity: Activity) {}
+        }
+    )
+
+    log.info("CyberUI: Immersive fullscreen ENABLED for all activities")
+  }
+
+  // ═══════════════════════════════════════════════════════════════
 
   /**
    * Check if the snowfall season is currently active.
@@ -404,6 +480,18 @@ class IDEApplication : TermuxApplication() {
   companion object {
 
     private val log = LoggerFactory.getLogger(IDEApplication::class.java)
+
+    /**
+     * ═══════════════════════════════════════════════════════════
+     *  CyberUI Immersive Fullscreen — Master Toggle
+     * ═══════════════════════════════════════════════════════════
+     *
+     *  true  → पूरे app में Status Bar + Navigation Bar छिपे रहेंगे
+     *  false → पूरी तरह बंद (default AndroidIDE behaviour)
+     *
+     *  बदलने के बाद सिर्फ app rebuild/reinstall करो — बाकी सब auto।
+     */
+    private const val ENABLE_CYBER_IMMERSIVE = true
 
     @JvmStatic lateinit var instance: IDEApplication
       private set
