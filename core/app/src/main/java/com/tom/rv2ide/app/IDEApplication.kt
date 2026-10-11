@@ -13,9 +13,8 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with AndroidIDE.  If not, see <https://www.gnu.org/licenses/>.
- *
- * Author Neeraj-OS-developer 
- *
+ * 
+ * author Neeraj-OS-developer 
  */
 
 package com.tom.rv2ide.app
@@ -95,7 +94,20 @@ class IDEApplication : TermuxApplication() {
   private var memoryManager: MemoryManager? = null
   private var chartCleanupTask: ChartMemoryCleanupTask? = null
   private var memoryProfiler: MemoryProfiler? = null
-  private const val ENABLE_CYBER_IMMERSIVE = true
+
+  /**
+   * ═══════════════════════════════════════════════════════════
+   *  CyberUI Immersive Fullscreen — Master Toggle
+   * ═══════════════════════════════════════════════════════════
+   *
+   *  true  → पूरे app में Status Bar + Navigation Bar छिपे रहेंगे
+   *  false → पूरी तरह बंद (default AndroidIDE behaviour)
+   *
+   *  NOTE: यहाँ `const val` नहीं हो सकता क्योंकि यह class body
+   *  में है — Kotlin में `const val` सिर्फ top-level, object,
+   *  या companion object में allowed है।
+   */
+  private val ENABLE_CYBER_IMMERSIVE = true
 
   init {
     RecyclableObjectPool.DEBUG = BuildConfig.DEBUG
@@ -167,7 +179,7 @@ class IDEApplication : TermuxApplication() {
     // DISABLED: Plugin system completely disabled to prevent Tooling API issues
     // initializePluginSystem()
 
-    // ✅ CyberUI — पूरे app में immersive fullscreen (companion toggle से on/off)
+    // ✅ CyberUI — पूरे app में immersive fullscreen (toggle से on/off)
     enableCyberImmersive()
   }
 
@@ -180,7 +192,7 @@ class IDEApplication : TermuxApplication() {
    * दोनों छिप जाते हैं)। हर Activity पर automatically लागू होता है — किसी भी
    * Activity में कोई code लिखने की ज़रूरत नहीं।
    *
-   * On/Off करने के लिए companion object में `ENABLE_CYBER_IMMERSIVE` बदल दो।
+   * On/Off करने के लिए class body में `ENABLE_CYBER_IMMERSIVE` बदल दो।
    *
    * Android 10/11 पर system bars first frame के बाद वापस आ जाते हैं — इसलिए
    * हर window focus पर दोबारा apply किया जाता है (यही असली fix है)।
@@ -481,18 +493,6 @@ class IDEApplication : TermuxApplication() {
   companion object {
 
     private val log = LoggerFactory.getLogger(IDEApplication::class.java)
-
-    /**
-     * ═══════════════════════════════════════════════════════════
-     *  CyberUI Immersive Fullscreen — Master Toggle
-     * ═══════════════════════════════════════════════════════════
-     *
-     *  true  → पूरे app में Status Bar + Navigation Bar छिपे रहेंगे
-     *  false → पूरी तरह बंद (default AndroidIDE behaviour)
-     *
-     *  बदलने के बाद सिर्फ app rebuild/reinstall करो — बाकी सब auto।
-     */
-    private const val ENABLE_CYBER_IMMERSIVE = true
 
     @JvmStatic lateinit var instance: IDEApplication
       private set
