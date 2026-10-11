@@ -2,31 +2,40 @@
 <androidx.coordinatorlayout.widget.CoordinatorLayout
   xmlns:android="http://schemas.android.com/apk/res/android"
   xmlns:app="http://schemas.android.com/apk/res-auto"
+  android:id="@+id/root_coordinator"
   android:layout_width="match_parent"
   android:layout_height="match_parent"
   android:animateLayoutChanges="true"
+  android:fitsSystemWindows="true"
   android:orientation="vertical">
 
+  <!-- FIX 1: height match_parent -> wrap_content (warna poori screen block karta tha) -->
   <com.google.android.material.appbar.AppBarLayout
     android:id="@+id/appbar"
     android:layout_width="match_parent"
-    android:layout_height="match_parent"
+    android:layout_height="wrap_content"
     android:elevation="8dp"
     app:elevation="8dp"
-    app:layout_behavior="com.google.android.material.appbar.AppBarLayout$Behavior"
-    android:fitsSystemWindows="true">
+    android:fitsSystemWindows="true"
+    app:layout_behavior="com.google.android.material.appbar.AppBarLayout$Behavior">
 
+    <!-- FIX 2: Toolbar ko proper action bar size diya, warna 0dp collapse ho jata -->
     <com.google.android.material.appbar.MaterialToolbar
       android:id="@+id/toolbar"
       android:layout_width="match_parent"
-      android:layout_height="wrap_content" />
+      android:layout_height="?attr/actionBarSize"
+      android:minHeight="?attr/actionBarSize"
+      android:background="?attr/colorSurface" />
 
   </com.google.android.material.appbar.AppBarLayout>
 
+  <!-- FIX 3: clipToPadding=false + layout_behavior => content nav bar ke piche nahi chhupega -->
   <androidx.core.widget.NestedScrollView
     android:id="@+id/fragment_container_parent"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:clipToPadding="false"
+    android:fillViewport="true"
     app:layout_behavior="com.google.android.material.appbar.AppBarLayout$ScrollingViewBehavior">
 
     <LinearLayout
@@ -39,9 +48,11 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content" />
 
+      <!-- Existing custom view ko as-is rakha: bottom nav-bar inset ki height deta hai -->
       <com.tom.rv2ide.ui.BottomInsetHeightDistributor
         android:layout_width="match_parent"
         android:layout_height="0dp" />
+
     </LinearLayout>
 
   </androidx.core.widget.NestedScrollView>
