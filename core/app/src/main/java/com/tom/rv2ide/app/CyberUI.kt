@@ -27,18 +27,10 @@ import androidx.core.view.WindowInsetsControllerCompat
  * ─────────────────────────────────────────────────────────────
  *
  *  Edge-to-Edge (bars visible, transparent):
- *      CyberUI.applyEdgeToEdge(this);
+ *      CyberUI.applyEdgeToEdge(this)
  *
  *  Fullscreen Immersive (bars completely hidden):
- *      CyberUI.applyImmersiveFullscreen(this);
- *
- *    MANDATORY for Android 10/11 stability — also override:
- *
- *      @Override
- *      public void onWindowFocusChanged(boolean hasFocus) {
- *          super.onWindowFocusChanged(hasFocus);
- *          if (hasFocus) CyberUI.applyImmersiveFullscreen(this);
- *      }
+ *      CyberUI.applyImmersiveFullscreen(this)
  */
 @Suppress("DEPRECATION")
 object CyberUI {
@@ -75,9 +67,6 @@ object CyberUI {
      * Status bar + Navigation bar दोनों को पूरी तरह छिपा देता है।
      * Immersive Sticky mode — user edge swipe करे तो bars थोड़ी देर
      * दिखेंगे, फिर अपने आप छिप जाएँगे।
-     *
-     * Android 10/11 पर timing quirk के कारण इसे onWindowFocusChanged
-     * से भी call करना अनिवार्य है।
      */
     @JvmStatic
     fun applyImmersiveFullscreen(activity: Activity) {
@@ -89,8 +78,8 @@ object CyberUI {
 
         // ── 2. Bars को 100% transparent रखो ─────────────────────
         window.clearFlags(
-            WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS
-                or WindowManager.LayoutParams.FLAG_TRANSLUCENT_NAVIGATION
+            WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS or
+                WindowManager.LayoutParams.FLAG_TRANSLUCENT_NAVIGATION
         )
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
@@ -133,15 +122,12 @@ object CyberUI {
         }
 
         // ── 6. Legacy flags — Android 10/11 के लिए CRITICAL ──────
-        //     WindowInsetsControllerCompat अकेले Android 10/11 पर
-        //     reliable नहीं है। इन flags के बिना bars पहली touch पर
-        //     वापस आ जाते हैं और lock हो जाते हैं।
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
-            var flags = View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-                or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-                or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-                or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-                or View.SYSTEM_UI_FLAG_FULLSCREEN
+            var flags = View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
+                View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or
+                View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
+                View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
+                View.SYSTEM_UI_FLAG_FULLSCREEN
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
                 flags = flags or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
@@ -154,8 +140,6 @@ object CyberUI {
         content?.setPadding(0, 0, 0, 0)
 
         // ── 8. Android 10/11 पर deferred re-apply ────────────────
-        //     System bars first frame पर re-appear हो सकते हैं।
-        //     200ms बाद एक और बार apply करने से यह lock हो जाता है।
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
             Build.VERSION.SDK_INT < Build.VERSION_CODES.S
         ) {
@@ -175,7 +159,6 @@ object CyberUI {
             WindowCompat.getInsetsController(window, decor)
         controller?.show(WindowInsetsCompat.Type.systemBars())
 
-        // Legacy flags clear करो
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
             decor.systemUiVisibility = View.SYSTEM_UI_FLAG_LAYOUT_STABLE
         }
@@ -185,15 +168,11 @@ object CyberUI {
     //  ANDROID 10/11 DEFERRED RE-APPLY (जादुई fix)
     // ═══════════════════════════════════════════════════════════════
 
-    /**
-     * Android 10/11 पर system bars first draw के बाद एक बार
-     * re-appear होते हैं। 200ms बाद दोबारा apply करने से वे
-     * properly lock हो जाते हैं और user touch पर भी नहीं आते।
-     */
     private fun scheduleDeferredImmersiveReapply(activity: Activity) {
         Handler(Looper.getMainLooper()).postDelayed({
             if (activity.isFinishing ||
-                (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1 && activity.isDestroyed)
+                (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1 &&
+                    activity.isDestroyed)
             ) {
                 return@postDelayed
             }
@@ -209,12 +188,11 @@ object CyberUI {
                     WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             }
 
-            // Legacy flags दोबारा set करो — Android 10 की lock fix
-            var flags = View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-                or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-                or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-                or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-                or View.SYSTEM_UI_FLAG_FULLSCREEN
+            var flags = View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
+                View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or
+                View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
+                View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
+                View.SYSTEM_UI_FLAG_FULLSCREEN
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
                 flags = flags or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
@@ -236,8 +214,8 @@ object CyberUI {
         WindowCompat.setDecorFitsSystemWindows(window, false)
 
         window.clearFlags(
-            WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS
-                or WindowManager.LayoutParams.FLAG_TRANSLUCENT_NAVIGATION
+            WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS or
+                WindowManager.LayoutParams.FLAG_TRANSLUCENT_NAVIGATION
         )
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
@@ -291,8 +269,8 @@ object CyberUI {
         var flags = 0
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN) {
-            flags = flags or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-                or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+            flags = flags or View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
+                View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
             flags = flags or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
