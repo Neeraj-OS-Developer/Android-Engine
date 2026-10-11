@@ -95,6 +95,7 @@ class IDEApplication : TermuxApplication() {
   private var memoryManager: MemoryManager? = null
   private var chartCleanupTask: ChartMemoryCleanupTask? = null
   private var memoryProfiler: MemoryProfiler? = null
+  private const val ENABLE_CYBER_IMMERSIVE = true
 
   init {
     RecyclableObjectPool.DEBUG = BuildConfig.DEBUG
