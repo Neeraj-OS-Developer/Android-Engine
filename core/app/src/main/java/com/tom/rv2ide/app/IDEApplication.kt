@@ -107,7 +107,7 @@ class IDEApplication : TermuxApplication() {
    *  में है — Kotlin में `const val` सिर्फ top-level, object,
    *  या companion object में allowed है।
    */
-  private val ENABLE_CYBER_IMMERSIVE = true
+  private val ENABLE_CYBER_IMMERSIVE = false
 
   init {
     RecyclableObjectPool.DEBUG = BuildConfig.DEBUG
