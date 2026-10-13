@@ -13,21 +13,16 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with AndroidIDE.  If not, see <https://www.gnu.org/licenses/>.
- * 
- * author Neeraj-OS-developer 
+ *
  */
 
 package com.tom.rv2ide.app
 
-import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import android.os.Build
-import android.os.Bundle
 import android.os.StrictMode
 import android.util.Log
-import android.view.ViewTreeObserver
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.os.LocaleListCompat
 import androidx.lifecycle.Observer
@@ -94,20 +89,6 @@ class IDEApplication : TermuxApplication() {
   private var memoryManager: MemoryManager? = null
   private var chartCleanupTask: ChartMemoryCleanupTask? = null
   private var memoryProfiler: MemoryProfiler? = null
-
-  /**
-   * ═══════════════════════════════════════════════════════════
-   *  CyberUI Immersive Fullscreen — Master Toggle
-   * ═══════════════════════════════════════════════════════════
-   *
-   *  true  → पूरे app में Status Bar + Navigation Bar छिपे रहेंगे
-   *  false → पूरी तरह बंद (default AndroidIDE behaviour)
-   *
-   *  NOTE: यहाँ `const val` नहीं हो सकता क्योंकि यह class body
-   *  में है — Kotlin में `const val` सिर्फ top-level, object,
-   *  या companion object में allowed है।
-   */
-  private val ENABLE_CYBER_IMMERSIVE = false
 
   init {
     RecyclableObjectPool.DEBUG = BuildConfig.DEBUG
@@ -178,77 +159,7 @@ class IDEApplication : TermuxApplication() {
 
     // DISABLED: Plugin system completely disabled to prevent Tooling API issues
     // initializePluginSystem()
-
-    // ✅ CyberUI — पूरे app में immersive fullscreen (toggle से on/off)
-    enableCyberImmersive()
   }
-
-  // ═══════════════════════════════════════════════════════════════
-  //  CYBERUI — IMMERSIVE FULLSCREEN (हर Activity पर auto apply)
-  // ═══════════════════════════════════════════════════════════════
-
-  /**
-   * CyberUI — पूरे app में auto Immersive Fullscreen (Status Bar + Navigation Bar
-   * दोनों छिप जाते हैं)। हर Activity पर automatically लागू होता है — किसी भी
-   * Activity में कोई code लिखने की ज़रूरत नहीं।
-   *
-   * On/Off करने के लिए class body में `ENABLE_CYBER_IMMERSIVE` बदल दो।
-   *
-   * Android 10/11 पर system bars first frame के बाद वापस आ जाते हैं — इसलिए
-   * हर window focus पर दोबारा apply किया जाता है (यही असली fix है)।
-   */
-  private fun enableCyberImmersive() {
-    if (!ENABLE_CYBER_IMMERSIVE) {
-      log.info("CyberUI: Immersive fullscreen DISABLED via toggle")
-      return
-    }
-
-    registerActivityLifecycleCallbacks(
-        object : ActivityLifecycleCallbacks {
-
-          override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {
-            // पहला apply — Activity बनते ही
-            CyberUI.applyImmersiveFullscreen(activity)
-
-            // Android 10/11 fix — हर focus पर दोबारा apply
-            // (Activity.onWindowFocusChanged का Application-level equivalent)
-            activity.window.decorView.viewTreeObserver.addOnWindowFocusChangeListener(
-                object : ViewTreeObserver.OnWindowFocusChangeListener {
-                  override fun onWindowFocusChanged(hasFocus: Boolean) {
-                    if (!hasFocus) return
-
-                    // Activity ज़िंदा है या नहीं — safety check
-                    if (activity.isFinishing) return
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1 &&
-                        activity.isDestroyed
-                    ) {
-                      return
-                    }
-
-                    CyberUI.applyImmersiveFullscreen(activity)
-                  }
-                }
-            )
-          }
-
-          override fun onActivityStarted(activity: Activity) {}
-
-          override fun onActivityResumed(activity: Activity) {}
-
-          override fun onActivityPaused(activity: Activity) {}
-
-          override fun onActivityStopped(activity: Activity) {}
-
-          override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) {}
-
-          override fun onActivityDestroyed(activity: Activity) {}
-        }
-    )
-
-    log.info("CyberUI: Immersive fullscreen ENABLED for all activities")
-  }
-
-  // ═══════════════════════════════════════════════════════════════
 
   /**
    * Check if the snowfall season is currently active.
