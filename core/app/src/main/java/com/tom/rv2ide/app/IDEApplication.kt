@@ -13,7 +13,7 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with AndroidIDE.  If not, see <https://www.gnu.org/licenses/>.
- *
+ * Author Neeraj-OS-developer
  */
 
 package com.tom.rv2ide.app
@@ -154,21 +154,45 @@ class IDEApplication : TermuxApplication() {
 
     // Initialize memory management
     // initializeMemoryManagement()
-    extractLoggerRuntime()
-    extractJetbrainsMono()
+
+    extractAssetIfMissing(
+        assetPath = "fonts/jetbrains-mono.ttf",
+        targetFile = File(File(Environment.HOME, ".androidide/ui"), "jetbrains-mono.ttf"),
+    )
+    extractAssetIfMissing(
+        assetPath = "logger-runtime.aar",
+        targetFile = File(File(Environment.HOME, "plugins/logger"), "logger-runtime.aar"),
+    )
+
+    // Ensure stat upload worker reflects the current opt-in state.
+    reportStatsIfNecessary()
 
     // DISABLED: Plugin system completely disabled to prevent Tooling API issues
     // initializePluginSystem()
   }
 
+  override fun onTerminate() {
+    stopLogcatReader()
+    super.onTerminate()
+  }
+
   /**
-   * Check if the snowfall season is currently active.
-   * Snowfall is active until January 5, 2026.
+   * Returns whether the snowfall effect should be shown for the current date.
+   *
+   * The season runs annually from December 1st through January 5th (inclusive).
+   * Implemented as a recurring window so the check no longer expires on a hardcoded date.
    */
   private fun isSnowfallSeasonActive(): Boolean {
-    val currentDate = LocalDate.now()
-    val endDate = LocalDate.of(2026, 1, 5)
-    return !currentDate.isAfter(endDate)
+    val today = LocalDate.now()
+    val month = today.monthValue
+    val day = today.dayOfMonth
+
+    // December 1 – 31
+    if (month == 12) return true
+    // January 1 – 5
+    if (month == 1 && day <= 5) return true
+
+    return false
   }
 
   fun showChangelog() {
@@ -190,10 +214,17 @@ class IDEApplication : TermuxApplication() {
     }
   }
 
+  /**
+   * Enqueues (or cancels) the periodic [StatUploadWorker] based on the user's current opt-in.
+   *
+   * Safe to call repeatedly — uses [ExistingPeriodicWorkPolicy.UPDATE] so a running worker
+   * is rescheduled with the newest payload and constraints.
+   */
   fun reportStatsIfNecessary() {
 
     if (!StatPreferences.statOptIn) {
       log.info("Stat collection is disabled.")
+      cancelStatUploadWorker()
       return
     }
 
@@ -227,67 +258,51 @@ class IDEApplication : TermuxApplication() {
 
   @Subscribe(threadMode = ThreadMode.MAIN)
   fun onPrefChanged(event: PreferenceChangeEvent) {
-    if (event.key == GeneralPreferences.UI_MODE) {
-      if (GeneralPreferences.uiMode != AppCompatDelegate.getDefaultNightMode()) {
-        AppCompatDelegate.setDefaultNightMode(GeneralPreferences.uiMode)
-      }
-    } else if (event.key == GeneralPreferences.SELECTED_LOCALE) {
-
-      // Use empty locale list if the locale has been reset to 'System Default'
-      val selectedLocale = GeneralPreferences.selectedLocale
-      val localeListCompat =
-          selectedLocale?.let { LocaleListCompat.create(LocaleProvider.getLocale(selectedLocale)) }
-              ?: LocaleListCompat.getEmptyLocaleList()
-
-      AppCompatDelegate.setApplicationLocales(localeListCompat)
-    }
-  }
-
-  private fun extractJetbrainsMono() {
-    try {
-      val fontsDir = File(Environment.HOME, ".androidide/ui")
-
-      if (!fontsDir.exists()) {
-        fontsDir.mkdirs()
-      }
-      val targetFont = File(fontsDir, "jetbrains-mono.ttf")
-
-      // Skip re-extraction if already present (speeds up cold start)
-      if (targetFont.exists() && targetFont.length() > 0L) {
-        return
-      }
-
-      assets.open("fonts/jetbrains-mono.ttf").use { input ->
-        BufferedInputStream(input).use { bufferedInput ->
-          FileOutputStream(targetFont).use { output ->
-            BufferedOutputStream(output).use { bufferedOutput ->
-              bufferedInput.copyTo(bufferedOutput)
-            }
-          }
+    when (event.key) {
+      GeneralPreferences.UI_MODE -> {
+        if (GeneralPreferences.uiMode != AppCompatDelegate.getDefaultNightMode()) {
+          AppCompatDelegate.setDefaultNightMode(GeneralPreferences.uiMode)
         }
       }
-    } catch (e: Exception) {
-      log.error("Failed to extract jetbrains-mono.ttf font", e)
+
+      GeneralPreferences.SELECTED_LOCALE -> {
+        // Use empty locale list if the locale has been reset to 'System Default'
+        val selectedLocale = GeneralPreferences.selectedLocale
+        val localeListCompat =
+            selectedLocale?.let {
+              LocaleListCompat.create(LocaleProvider.getLocale(selectedLocale))
+            } ?: LocaleListCompat.getEmptyLocaleList()
+
+        AppCompatDelegate.setApplicationLocales(localeListCompat)
+      }
+
+      // NOTE: Runtime stat opt-in/opt-out is intentionally NOT wired here because the exact
+      // key constant name on StatPreferences was not provided. Once confirmed, add:
+      //
+      //   StatPreferences.<KEY_CONSTANT> -> reportStatsIfNecessary()
     }
   }
 
-  private fun extractLoggerRuntime() {
+  /**
+   * Copies an asset to [targetFile] if the target does not already exist or is empty.
+   *
+   * Guards against NPE when the parent directory does not exist by creating it first.
+   * Silently logs and returns on failure so a bad asset never blocks app start.
+   */
+  private fun extractAssetIfMissing(assetPath: String, targetFile: File) {
     try {
-      val pluginsDir = File(Environment.HOME, "plugins/logger")
-
-      if (!pluginsDir.exists()) {
-        pluginsDir.mkdirs()
-        log.info("Created directory: ${pluginsDir.absolutePath}")
+      targetFile.parentFile?.let { parent ->
+        if (!parent.exists()) {
+          parent.mkdirs()
+        }
       }
-
-      val targetFile = File(pluginsDir, "logger-runtime.aar")
 
       // Skip re-extraction if already present (speeds up cold start)
       if (targetFile.exists() && targetFile.length() > 0L) {
         return
       }
 
-      assets.open("logger-runtime.aar").use { input ->
+      assets.open(assetPath).use { input ->
         BufferedInputStream(input).use { bufferedInput ->
           FileOutputStream(targetFile).use { output ->
             BufferedOutputStream(output).use { bufferedOutput ->
@@ -297,9 +312,9 @@ class IDEApplication : TermuxApplication() {
         }
       }
 
-      log.info("Successfully extracted logger-runtime.aar to: ${targetFile.absolutePath}")
+      log.info("Successfully extracted {} to: {}", assetPath, targetFile.absolutePath)
     } catch (e: Exception) {
-      log.error("Failed to extract logger-runtime.aar", e)
+      log.error("Failed to extract asset: {}", assetPath, e)
     }
   }
 
@@ -354,6 +369,10 @@ class IDEApplication : TermuxApplication() {
   }
 
   private fun stopLogcatReader() {
+    if (ideLogcatReader == null) {
+      return
+    }
+
     log.info("Stopping logcat reader...")
     ideLogcatReader?.stop()
     ideLogcatReader = null
@@ -405,7 +424,8 @@ class IDEApplication : TermuxApplication() {
 
     private val log = LoggerFactory.getLogger(IDEApplication::class.java)
 
-    @JvmStatic lateinit var instance: IDEApplication
+    @JvmStatic
+    lateinit var instance: IDEApplication
       private set
   }
 }
