@@ -13,7 +13,7 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with AndroidIDE.  If not, see <https://www.gnu.org/licenses/>.
- * Author Neeraj-OS-developer
+ *
  */
 
 package com.tom.rv2ide.app
@@ -66,13 +66,10 @@ import com.tom.rv2ide.utils.MemoryProfiler
 import io.github.mohammedbaqernull.seasonal.SeasonalEffects
 import io.github.miyazkaori.silentinstaller.SilentInstaller
 import io.github.rosemoe.sora.widget.schemes.EditorColorScheme
-import java.io.BufferedInputStream
-import java.io.BufferedOutputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.lang.Thread.UncaughtExceptionHandler
 import java.time.Duration
-import java.time.LocalDate
 import kotlin.system.exitProcess
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.GlobalScope
@@ -99,10 +96,9 @@ class IDEApplication : TermuxApplication() {
 
     SilentInstaller.init(this)
     // Load native libraries after base context is attached
+    TreeSitter.loadLibrary()
     if (!VMUtils.isJvm()) {
-      try {
-        TreeSitter.loadLibrary()
-      } catch (e: Throwable) {
+      try {} catch (e: Throwable) {
         log.error("Failed to load TreeSitter library", e)
       }
     }
@@ -154,57 +150,30 @@ class IDEApplication : TermuxApplication() {
 
     // Initialize memory management
     // initializeMemoryManagement()
-
-    extractAssetIfMissing(
-        assetPath = "fonts/jetbrains-mono.ttf",
-        targetFile = File(File(Environment.HOME, ".androidide/ui"), "jetbrains-mono.ttf"),
-    )
-    extractAssetIfMissing(
-        assetPath = "logger-runtime.aar",
-        targetFile = File(File(Environment.HOME, "plugins/logger"), "logger-runtime.aar"),
-    )
-
-    // Ensure stat upload worker reflects the current opt-in state.
-    reportStatsIfNecessary()
+    extractLoggerRuntime()
+    extractJetbrainsMono()
 
     // DISABLED: Plugin system completely disabled to prevent Tooling API issues
     // initializePluginSystem()
   }
 
-  override fun onTerminate() {
-    stopLogcatReader()
-    super.onTerminate()
-  }
-
   /**
-   * Returns whether the snowfall effect should be shown for the current date.
-   *
-   * The season runs annually from December 1st through January 5th (inclusive).
-   * Implemented as a recurring window so the check no longer expires on a hardcoded date.
+   * Check if the snowfall season is currently active.
+   * Snowfall is active until January 5, 2026.
    */
   private fun isSnowfallSeasonActive(): Boolean {
-    val today = LocalDate.now()
-    val month = today.monthValue
-    val day = today.dayOfMonth
-
-    // December 1 – 31
-    if (month == 12) return true
-    // January 1 – 5
-    if (month == 1 && day <= 5) return true
-
-    return false
+    val currentDate = java.time.LocalDate.now()
+    val endDate = java.time.LocalDate.of(2026, 1, 5)
+    return currentDate.isBefore(endDate) || currentDate.isEqual(endDate)
   }
-
+  
   fun showChangelog() {
     val intent = Intent(Intent.ACTION_VIEW)
     var version = BuildInfo.VERSION_NAME_SIMPLE
     if (!version.startsWith('v')) {
       version = "v${version}"
     }
-    intent.data =
-        Uri.parse(
-            "https://github.com/Neeraj-OS-Developer/android-code-studio/releases/tag/${version}"
-        )
+    intent.data = Uri.parse("${BuildInfo.REPO_URL}/releases/tag/${version}")
     intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     try {
       startActivity(intent)
@@ -214,17 +183,10 @@ class IDEApplication : TermuxApplication() {
     }
   }
 
-  /**
-   * Enqueues (or cancels) the periodic [StatUploadWorker] based on the user's current opt-in.
-   *
-   * Safe to call repeatedly — uses [ExistingPeriodicWorkPolicy.UPDATE] so a running worker
-   * is rescheduled with the newest payload and constraints.
-   */
   fun reportStatsIfNecessary() {
 
     if (!StatPreferences.statOptIn) {
       log.info("Stat collection is disabled.")
-      cancelStatUploadWorker()
       return
     }
 
@@ -258,63 +220,59 @@ class IDEApplication : TermuxApplication() {
 
   @Subscribe(threadMode = ThreadMode.MAIN)
   fun onPrefChanged(event: PreferenceChangeEvent) {
-    when (event.key) {
-      GeneralPreferences.UI_MODE -> {
-        if (GeneralPreferences.uiMode != AppCompatDelegate.getDefaultNightMode()) {
-          AppCompatDelegate.setDefaultNightMode(GeneralPreferences.uiMode)
-        }
-      }
+    val enabled = event.value as? Boolean?
+    if (
+        event.key == GeneralPreferences.UI_MODE &&
+            GeneralPreferences.uiMode != AppCompatDelegate.getDefaultNightMode()
+    ) {
+      AppCompatDelegate.setDefaultNightMode(GeneralPreferences.uiMode)
+    } else if (event.key == GeneralPreferences.SELECTED_LOCALE) {
 
-      GeneralPreferences.SELECTED_LOCALE -> {
-        // Use empty locale list if the locale has been reset to 'System Default'
-        val selectedLocale = GeneralPreferences.selectedLocale
-        val localeListCompat =
-            selectedLocale?.let {
-              LocaleListCompat.create(LocaleProvider.getLocale(selectedLocale))
-            } ?: LocaleListCompat.getEmptyLocaleList()
+      // Use empty locale list if the locale has been reset to 'System Default'
+      val selectedLocale = GeneralPreferences.selectedLocale
+      val localeListCompat =
+          selectedLocale?.let { LocaleListCompat.create(LocaleProvider.getLocale(selectedLocale)) }
+              ?: LocaleListCompat.getEmptyLocaleList()
 
-        AppCompatDelegate.setApplicationLocales(localeListCompat)
-      }
-
-      // NOTE: Runtime stat opt-in/opt-out is intentionally NOT wired here because the exact
-      // key constant name on StatPreferences was not provided. Once confirmed, add:
-      //
-      //   StatPreferences.<KEY_CONSTANT> -> reportStatsIfNecessary()
+      AppCompatDelegate.setApplicationLocales(localeListCompat)
     }
   }
 
-  /**
-   * Copies an asset to [targetFile] if the target does not already exist or is empty.
-   *
-   * Guards against NPE when the parent directory does not exist by creating it first.
-   * Silently logs and returns on failure so a bad asset never blocks app start.
-   */
-  private fun extractAssetIfMissing(assetPath: String, targetFile: File) {
+  private fun extractJetbrainsMono() {
     try {
-      targetFile.parentFile?.let { parent ->
-        if (!parent.exists()) {
-          parent.mkdirs()
-        }
-      }
+      val fontsDir = File(Environment.HOME, ".androidide/ui")
 
-      // Skip re-extraction if already present (speeds up cold start)
-      if (targetFile.exists() && targetFile.length() > 0L) {
-        return
+      if (!fontsDir.exists()) {
+        fontsDir.mkdirs()
       }
+      val targetFont = File(fontsDir, "jetbrains-mono.ttf")
 
-      assets.open(assetPath).use { input ->
-        BufferedInputStream(input).use { bufferedInput ->
-          FileOutputStream(targetFile).use { output ->
-            BufferedOutputStream(output).use { bufferedOutput ->
-              bufferedInput.copyTo(bufferedOutput)
-            }
-          }
-        }
+      assets.open("fonts/jetbrains-mono.ttf").use { input ->
+        FileOutputStream(targetFont).use { output -> input.copyTo(output) }
       }
-
-      log.info("Successfully extracted {} to: {}", assetPath, targetFile.absolutePath)
     } catch (e: Exception) {
-      log.error("Failed to extract asset: {}", assetPath, e)
+      log.error("Failed to extract jetbrains-mono.ttf font", e)
+    }
+  }
+  
+  private fun extractLoggerRuntime() {
+    try {
+      val pluginsDir = File(Environment.HOME, "plugins/logger")
+
+      if (!pluginsDir.exists()) {
+        pluginsDir.mkdirs()
+        log.info("Created directory: ${pluginsDir.absolutePath}")
+      }
+
+      val targetFile = File(pluginsDir, "logger-runtime.aar")
+
+      assets.open("logger-runtime.aar").use { input ->
+        FileOutputStream(targetFile).use { output -> input.copyTo(output) }
+      }
+
+      log.info("Successfully extracted logger-runtime.aar to: ${targetFile.absolutePath}")
+    } catch (e: Exception) {
+      log.error("Failed to extract logger-runtime.aar", e)
     }
   }
 
@@ -322,25 +280,19 @@ class IDEApplication : TermuxApplication() {
     // writeException(th)
 
     try {
+
       val intent = Intent()
       intent.action = CrashHandlerActivity.REPORT_ACTION
       intent.putExtra(CrashHandlerActivity.TRACE_KEY, getFullStackTrace(th))
       intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
       startActivity(intent)
-
-      uncaughtExceptionHandler?.uncaughtException(thread, th)
+      if (uncaughtExceptionHandler != null) {
+        uncaughtExceptionHandler!!.uncaughtException(thread, th)
+      }
 
       exitProcess(1)
     } catch (error: Throwable) {
       Log.e("IDEApplication", "Unable to show crash handler activity", error)
-
-      // Last resort: chain to previous handler so the crash isn't silently swallowed
-      try {
-        uncaughtExceptionHandler?.uncaughtException(thread, th)
-      } catch (_: Throwable) {
-        // ignored
-      }
-      exitProcess(1)
     }
   }
 
@@ -369,10 +321,6 @@ class IDEApplication : TermuxApplication() {
   }
 
   private fun stopLogcatReader() {
-    if (ideLogcatReader == null) {
-      return
-    }
-
     log.info("Stopping logcat reader...")
     ideLogcatReader?.stop()
     ideLogcatReader = null
@@ -385,7 +333,7 @@ class IDEApplication : TermuxApplication() {
       chartCleanupTask = ChartMemoryCleanupTask()
 
       // Register chart cleanup task
-      chartCleanupTask?.let { memoryManager?.registerCleanupTask(it) }
+      memoryManager?.registerCleanupTask(chartCleanupTask!!)
 
       // Start memory monitoring with reduced frequency to avoid Tooling API conflicts
       memoryManager?.startMonitoring()
@@ -419,7 +367,6 @@ class IDEApplication : TermuxApplication() {
   fun getMemoryProfiler(): MemoryProfiler? {
     return memoryProfiler
   }
-
   companion object {
 
     private val log = LoggerFactory.getLogger(IDEApplication::class.java)
