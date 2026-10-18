@@ -14,15 +14,20 @@
  * You should have received a copy of the GNU General Public License
  * along with AndroidIDE.  If not, see <https://www.gnu.org/licenses/>.
  *
+ * author Neeraj-OS-Developer
+ *
  */
 
 package com.tom.rv2ide.app
 
+import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Bundle
 import android.os.StrictMode
 import android.util.Log
+import android.view.WindowManager
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.os.LocaleListCompat
 import androidx.lifecycle.Observer
@@ -111,6 +116,27 @@ class IDEApplication : TermuxApplication() {
     Thread.setDefaultUncaughtExceptionHandler { thread, th -> handleCrash(thread, th) }
 
     super.onCreate()
+
+    // Keep the screen on globally for all activities while the app is running
+    registerActivityLifecycleCallbacks(
+        object : ActivityLifecycleCallbacks {
+          override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {}
+
+          override fun onActivityStarted(activity: Activity) {}
+
+          override fun onActivityResumed(activity: Activity) {
+            activity.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+          }
+
+          override fun onActivityPaused(activity: Activity) {}
+
+          override fun onActivityStopped(activity: Activity) {}
+
+          override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) {}
+
+          override fun onActivityDestroyed(activity: Activity) {}
+        }
+    )
 
     if (GeneralPreferences.snowfallOverlay && isSnowfallSeasonActive()) {
       SeasonalEffects.init(this)
