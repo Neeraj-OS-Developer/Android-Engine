@@ -73,11 +73,11 @@ abstract class GenerateInitScriptTask : DefaultTask() {
 
       if (!pluginJar.exists() || !pluginJar.isFile()) {
           throw new GradleException(
-              "AndroidIDE: Gradle plugin JAR not found at \${pluginJar.absolutePath}."
+              "AndroidIDE: Gradle plugin JAR not found at ${'$'}{pluginJar.absolutePath}."
           )
       }
 
-      logger.lifecycle("AndroidIDE: Loading Gradle plugin from \${pluginJar.absolutePath}")
+      logger.lifecycle("AndroidIDE: Loading Gradle plugin from ${'$'}{pluginJar.absolutePath}")
 
       initscript {
           dependencies {
