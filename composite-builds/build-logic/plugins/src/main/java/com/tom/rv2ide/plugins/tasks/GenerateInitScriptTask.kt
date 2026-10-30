@@ -1,4 +1,5 @@
-/*
+/* author Name: Neeraj-OS-Developer 
+ *
  *  This file is part of AndroidIDE.
  *
  *  AndroidIDE is free software: you can redistribute it and/or modify
@@ -24,13 +25,6 @@ import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.TaskAction
 
-/**
- * Generates the Gradle init script for AndroidIDE.
- *
- * The generated init script loads the `rv2ide-gradle-plugin` JAR from the local filesystem
- * (bundled alongside this init script in the APK assets under `data/common/`) instead of
- * downloading it from Maven Central. This makes AndroidIDE fully usable in offline mode.
- */
 abstract class GenerateInitScriptTask : DefaultTask() {
 
   @get:Input abstract val downloadVersion: Property<String>
@@ -65,27 +59,103 @@ abstract class GenerateInitScriptTask : DefaultTask() {
 
       if (androidideInitScript == null) {
           throw new GradleException(
-              "AndroidIDE: Cannot locate '$INIT_SCRIPT_NAME' among Gradle init scripts."
+              "AndroidIDE Error: Cannot locate '$INIT_SCRIPT_NAME' among Gradle init scripts."
           )
       }
 
       def pluginJar = new File(androidideInitScript.parentFile, '$PLUGIN_JAR_NAME')
+      boolean isOfflineMode = false
 
-      if (!pluginJar.exists() || !pluginJar.isFile()) {
-          throw new GradleException(
-              "AndroidIDE: Gradle plugin JAR not found at ${'$'}{pluginJar.absolutePath}."
-          )
-      }
+      // =========================================================
+      // SMART FALLBACK SYSTEM (Offline -> Online -> Detailed Error)
+      // =========================================================
 
-      logger.lifecycle("AndroidIDE: Loading Gradle plugin from ${'$'}{pluginJar.absolutePath}")
-
-      initscript {
-          dependencies {
-              classpath files(pluginJar)
+      if (pluginJar.exists() && pluginJar.isFile()) {
+          // LEVEL 1: OFFLINE MODE (JAR found in assets)
+          isOfflineMode = true
+          logger.lifecycle("AndroidIDE: Offline mode detected. Loading plugin from: ${'$'}{pluginJar.absolutePath}")
+          
+          initscript {
+              dependencies {
+                  classpath files(pluginJar)
+              }
+          }
+      } else {
+          // LEVEL 2: ONLINE MODE (JAR not found, attempting Maven)
+          logger.warn("AndroidIDE: Offline JAR not found. Falling back to ONLINE mode (Maven Central)...")
+          
+          try {
+              initscript {
+                  repositories {
+                      google()
+                      mavenCentral()
+                  }
+                  dependencies {
+                      classpath('io.github.mohammed-baqer-null:rv2ide-gradle-plugin:1.0.0') {
+                          setChanging(false)
+                      }
+                  }
+              }
+              logger.lifecycle("AndroidIDE: Online mode successful. Plugin downloaded from Maven.")
+          } catch (Exception e) {
+              // LEVEL 3: CRITICAL ERROR (Both Offline and Online failed)
+              throw new GradleException("""
+                  
+                  ==============================================================
+                  ANDROIDIDE CRITICAL ERROR: PLUGIN LOAD FAILED
+                  ==============================================================
+                  
+                  The AndroidIDE Gradle plugin could not be loaded via either method:
+                  
+                  1. OFFLINE Check: FAILED
+                     Reason: File not found at ${'$'}{pluginJar.absolutePath}
+                     
+                  2. ONLINE Check: FAILED
+                     Reason: No internet connection or Maven repository is unreachable.
+                  
+                  Solutions:
+                  - Enable your internet connection and try building again.
+                  - Reinstall the AndroidIDE APK to restore the bundled offline JAR.
+                  
+                  Original Error: ${'$'}{e.message}
+                  ==============================================================
+                  
+              """.trimIndent())
           }
       }
 
+      // =========================================================
+      // Project Repositories Configuration
+      // =========================================================
+      settingsEvaluated { settings ->
+          settings.pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+      }
+
+      allprojects {
+          buildscript {
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          repositories {
+              google()
+              mavenCentral()
+          }
+      }
+
+      // =========================================================
+      // Final Apply
+      // =========================================================
       apply plugin: com.tom.rv2ide.gradle.AndroidIDEInitScriptPlugin
+      
+      logger.lifecycle("AndroidIDE: Init script execution finished. (Offline Mode: ${'$'}{isOfflineMode})")
     """.trimIndent()
   }
 }
